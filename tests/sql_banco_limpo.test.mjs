@@ -17,6 +17,7 @@ const cadeia = [
   '20261118000002_correcoes_qa.sql',
   '20261118000004_entradas_dashboard_admin.sql',
   '20261118000005_taxas_hotmart_custos_usd.sql',
+  '20261118000006_resumo_admin_periodo.sql',
 ];
 
 let PGlite;
@@ -306,6 +307,13 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     assert.equal(Number(atual.taxas_hotmart), 7); // taxa em USD fora
     assert.ok(Math.abs(Number(atual.custo_servicos_usd) - 2) < 0.01); // inclui uso de outros testes
     assert.ok(Math.abs(Number(atual.custo_servicos_brl) - 4) < 0.01); // linha com USD não conta em BRL
+    // período: início e fim inclusivos; fora do intervalo não conta
+    const p = (await q(`select * from public.resumo_admin_periodo(current_date, current_date)`))[0];
+    assert.equal(Number(p.entradas), 100);
+    assert.equal(Number(p.taxas_hotmart), 7);
+    assert.equal(Number(p.custos_fixos), 30);
+    const vazio = (await q(`select * from public.resumo_admin_periodo(current_date - 40, current_date - 30)`))[0];
+    assert.equal(Number(vazio.entradas) + Number(vazio.custos_fixos), 0);
     await db.exec('reset role; set role anon');
     await assert.rejects(() => q(`select * from public.resumo_admin_mensal(6)`), /permission denied/);
     await db.exec('reset role');

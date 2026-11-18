@@ -782,14 +782,14 @@ export async function listar_uso_servico(
 }
 
 /** Painel admin: uso de serviços de todos os clientes (RLS restringe a admin). */
-export async function listar_todo_uso_servico(): Promise<UsoServico[]> {
-  // Mês corrente (fuso de São Paulo): o resumo de custos soma essas linhas, então não pode truncar.
-  // shortcut: teto de 1000 linhas do PostgREST, trocar por agregação em RPC se o mês passar disso.
-  const mes = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+export async function listar_todo_uso_servico(inicio: string, fim: string): Promise<UsoServico[]> {
+  // O resumo de custos soma essas linhas, então não pode truncar.
+  // shortcut: teto de 1000 linhas do PostgREST, trocar por agregação em RPC se o período passar disso.
   const { data, error } = await supabase
     .from('uso_servico')
     .select('*')
-    .gte('data', `${mes}-01`)
+    .gte('data', inicio)
+    .lte('data', fim)
     .order('data', { ascending: false })
     .limit(1000);
   if (error) throw error;
@@ -1001,4 +1001,21 @@ export async function resumo_admin_mensal(meses = 6): Promise<ResumoAdminMes[]> 
     custo_servicos_usd: Number(r.custo_servicos_usd) || 0,
     custo_servicos_brl: Number(r.custo_servicos_brl) || 0,
   }));
+}
+
+export type ResumoAdminPeriodo = Omit<ResumoAdminMes, 'mes'>;
+
+/** Soma do dashboard num intervalo de datas (YYYY-MM-DD, início e fim inclusivos). */
+export async function resumo_admin_periodo(inicio: string, fim: string): Promise<ResumoAdminPeriodo> {
+  const { data, error } = await supabase.rpc('resumo_admin_periodo', { p_inicio: inicio, p_fim: fim });
+  if (error) throw error;
+  const r = ((data || [])[0] || {}) as Record<string, unknown>;
+  return {
+    entradas: Number(r.entradas) || 0,
+    qtd_entradas: Number(r.qtd_entradas) || 0,
+    taxas_hotmart: Number(r.taxas_hotmart) || 0,
+    custos_fixos: Number(r.custos_fixos) || 0,
+    custo_servicos_usd: Number(r.custo_servicos_usd) || 0,
+    custo_servicos_brl: Number(r.custo_servicos_brl) || 0,
+  };
 }

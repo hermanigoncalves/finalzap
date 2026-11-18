@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calcularMes } from '../frontend/src/lib/dashboardAdmin.ts';
+import { calcularMes, limitesDoMes } from '../frontend/src/lib/dashboardAdmin.ts';
 
 test('calcularMes: converte USD pela cotação e desconta taxas, custos fixos e serviços do lucro', () => {
   const r = calcularMes(
@@ -18,4 +18,18 @@ test('calcularMes: mês sem vendas dá prejuízo igual às despesas', () => {
     5,
   );
   assert.equal(r.lucro, -50);
+});
+
+test('limitesDoMes: primeiro e último dia, inclusive fevereiro bissexto e dezembro', () => {
+  assert.deepEqual(limitesDoMes('2026-11-18'), { inicio: '2026-11-01', fim: '2026-11-30' });
+  assert.deepEqual(limitesDoMes('2028-02-10'), { inicio: '2028-02-01', fim: '2028-02-29' });
+  assert.deepEqual(limitesDoMes('2026-12-31'), { inicio: '2026-12-01', fim: '2026-12-31' });
+});
+
+test('noPeriodo: início e fim inclusivos, aceita timestamp, rejeita vazio; periodoValido', async () => {
+  const { noPeriodo, periodoValido } = await import('../frontend/src/lib/dashboardAdmin.ts');
+  const p = { inicio: '2026-11-01', fim: '2026-11-30' };
+  assert.ok(noPeriodo('2026-11-01', p) && noPeriodo('2026-11-30', p) && noPeriodo('2026-11-15T10:00:00Z', p));
+  assert.ok(!noPeriodo('2026-10-31', p) && !noPeriodo('2026-12-01', p) && !noPeriodo(null, p));
+  assert.ok(periodoValido(p) && !periodoValido({ inicio: '2026-11-10', fim: '2026-11-01' }) && !periodoValido({ inicio: '', fim: '2026-11-01' }));
 });

@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Modal } from '../components/ui';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useFinance } from '../hooks/useFinance';
@@ -8,6 +8,9 @@ import { listar_todas_assinaturas, listar_todo_uso_servico, listar_todos_custos_
 import { Plus, Edit, Trash2, Save, Check, Mail } from 'lucide-react';
 import { traduzirRespostaReenvio } from '../lib/reenvio';
 import AdminDashboard from './AdminDashboard';
+import FiltroPeriodo from '../components/FiltroPeriodo';
+import { noPeriodo, periodoMesAtual, periodoValido, type Periodo } from '../lib/dashboardAdmin';
+import { hojeISO } from '../lib/datas';
 
 const STATUS_CORES: Record<string, string> = {
   Ativo: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800/50',
@@ -51,6 +54,10 @@ export default function Administrador() {
   const [openaiCusto, setOpenaiCusto] = useState<{ total: number; moeda: string } | null>(null);
   const [openaiErro, setOpenaiErro] = useState<string | null>(null);
   const [erroLocal, setErroLocal] = useState<string | null>(null);
+  // Filtro de período único para todas as abas (padrão: 1º ao último dia do mês atual).
+  const [periodo, setPeriodo] = useState<Periodo>(() => periodoMesAtual(hojeISO()));
+  const periodoRef = useRef(periodo); // o canal em tempo real usa sempre o período atual
+  periodoRef.current = periodo;
   const formVazio = {
     telefone: '',
     nome: '',
@@ -76,7 +83,8 @@ export default function Administrador() {
       setErroLocal(null);
       setAssinaturas(await listar_todas_assinaturas());
       setCustosFixos(await listar_todos_custos_fixos());
-      setUsos(await listar_todo_uso_servico());
+      const { inicio, fim } = periodoRef.current;
+      setUsos(periodoValido(periodoRef.current) ? await listar_todo_uso_servico(inicio, fim) : []);
     } catch (e) {
       setErroLocal(e instanceof Error ? e.message : 'Falha ao carregar dados.');
     }
@@ -164,7 +172,10 @@ export default function Administrador() {
   };
 
   useEffect(() => {
-    carregar();
+    void carregar();
+  }, [periodo]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
 
     // Tempo real: qualquer inserção/alteração de uso, assinatura ou custo atualiza a tela.
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -338,9 +349,10 @@ export default function Administrador() {
   };
 
   /* -------------------- Tokens / Uso -------------------- */
-  const mesAtualUso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+  // Assinaturas criadas pelo webhook não têm data_inicio: usa a criação.
+  const assinaturasPeriodo = assinaturas.filter((a) => noPeriodo(a.data_inicio ?? a.created_at, periodo));
+  const custosPeriodo = custosFixos.filter((c) => noPeriodo(c.vencimento, periodo));
   const resumoUso = usos
-    .filter((u) => u.data.slice(0, 7) === mesAtualUso)
     .reduce<Record<string, { custo: number; tokens: number }>>((acc, u) => {
       const r = acc[u.servico] || { custo: 0, tokens: 0 };
       r.custo += Number(u.custo_brl || 0);
@@ -358,6 +370,8 @@ export default function Administrador() {
         </p>
       </div>
 
+      <FiltroPeriodo valor={periodo} onChange={setPeriodo} />
+
       {erroLocal && (
         <div role="alert" className="p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 text-red-700 dark:text-red-400 text-sm">
           {erroLocal}
@@ -365,17 +379,17 @@ export default function Administrador() {
       )}
 
       {/* Conteúdo das abas */}
-      {tab === 'dashboard' && <AdminDashboard />}
+      {tab === 'dashboard' && <AdminDashboard periodo={periodo} />}
       {tab === 'assinaturas' && (
         <>
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
               <Card>
                 <CardContent className="p-6">
-                  <p className="text-sm text-slate-500 mb-1">Total de assinaturas</p>
-                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{assinaturas.length}</p>
+                  <p className="text-sm text-slate-500 mb-1">Assinaturas no período</p>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white">{assinaturasPeriodo.length}</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Ativas: {assinaturas.filter(a => a.status === 'Ativo').length}
+                    Ativas: {assinaturasPeriodo.filter(a => a.status === 'Ativo').length}
                   </p>
                 </CardContent>
               </Card>
@@ -402,14 +416,14 @@ export default function Administrador() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {assinaturas.length === 0 ? (
+                    {assinaturasPeriodo.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
                           Nenhuma assinatura cadastrada.
                         </td>
                       </tr>
                     ) : (
-                      assinaturas.map((a) => (
+                      assinaturasPeriodo.map((a) => (
                         <tr key={a.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
@@ -634,12 +648,12 @@ export default function Administrador() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {Object.keys(resumoUso).length === 0 ? (
-              <Card><CardContent className="p-6 text-sm text-slate-500">Sem uso registrado neste mês.</CardContent></Card>
+              <Card><CardContent className="p-6 text-sm text-slate-500">Sem uso registrado no período.</CardContent></Card>
             ) : (
               Object.entries(resumoUso).map(([servico, r]) => (
                 <Card key={servico}>
                   <CardContent className="p-6">
-                    <p className="text-sm text-slate-500 mb-1 capitalize">{servico} (mês)</p>
+                    <p className="text-sm text-slate-500 mb-1 capitalize">{servico} (período)</p>
                     <p className="text-2xl font-bold text-slate-900 dark:text-white">{formatar_moeda_brl(r.custo)}</p>
                     <p className="text-xs text-slate-400 mt-1">{r.tokens.toLocaleString('pt-BR')} tokens</p>
                   </CardContent>
@@ -680,7 +694,7 @@ export default function Administrador() {
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>OpenAI: gasto real do mês</CardTitle></CardHeader>
+            <CardHeader><CardTitle>OpenAI: gasto real do mês atual</CardTitle></CardHeader>
             <CardContent className="space-y-3">
               {openaiErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{openaiErro}</p>}
               {openaiCusto && (
@@ -693,7 +707,7 @@ export default function Administrador() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>WhatsApp oficial (Meta): custo real do mês</CardTitle>
+              <CardTitle>WhatsApp oficial (Meta): custo real do mês atual</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {metaCarregando && <p className="text-sm text-slate-500">Consultando a Meta...</p>}
@@ -744,7 +758,7 @@ export default function Administrador() {
                         <p className="text-sm text-slate-500 mb-1">Total Pendente</p>
                         <p className="text-2xl font-bold text-slate-900 dark:text-white">
                           {formatar_moeda_brl(
-                            custosFixos
+                            custosPeriodo
                               .filter(c => c.status === 'pendente')
                               .reduce((s, c) => s + Number(c.valor), 0)
                           )}
@@ -756,7 +770,7 @@ export default function Administrador() {
                         <p className="text-sm text-slate-500 mb-1">Total Pago</p>
                         <p className="text-2xl font-bold text-slate-900 dark:text-white">
                           {formatar_moeda_brl(
-                            custosFixos
+                            custosPeriodo
                               .filter(c => c.status === 'pago')
                               .reduce((s, c) => s + Number(c.valor), 0)
                           )}
@@ -768,7 +782,7 @@ export default function Administrador() {
                         <p className="text-sm text-slate-500 mb-1">Total Geral</p>
                         <p className="text-2xl font-bold text-slate-900 dark:text-white">
                           {formatar_moeda_brl(
-                            custosFixos.reduce((s, c) => s + Number(c.valor), 0)
+                            custosPeriodo.reduce((s, c) => s + Number(c.valor), 0)
                           )}
                         </p>
                       </CardContent>
@@ -798,14 +812,14 @@ export default function Administrador() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {custosFixos.length === 0 ? (
+                    {custosPeriodo.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-6 py-8 text-center text-slate-400">
                           Nenhum custo fixo cadastrado.
                         </td>
                       </tr>
                     ) : (
-                      custosFixos.map((c) => {
+                      custosPeriodo.map((c) => {
                         const categoriaLabel: Record<string, string> = {
                           servidor: 'Servidor',
                           ferramenta: 'Ferramenta',
