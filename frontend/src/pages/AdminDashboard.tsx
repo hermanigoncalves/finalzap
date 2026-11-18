@@ -67,20 +67,21 @@ export default function AdminDashboard({ periodo }: { periodo: Periodo }) {
     ? atual.entradas / atual.qtd_entradas
     : totalVendas > 0 ? dados.reduce((t, x) => t + x.entradas, 0) / totalVendas : 0;
   const previsao = ativas * ticket;
-  // Valores monetários: R$ e o equivalente em US$ pela cotação do dia.
+  // Só os serviços mostram também US$ (equivalente pela cotação do dia); o resto é só R$.
+  const r = (brl: number) => ({ valor: formatCurrency(brl) });
   const m = (brl: number) => ({ valor: formatCurrency(brl), valorUsd: usd(brl / cotacao.valor) });
   const cards: { titulo: string; valor: string; valorUsd?: string; dica: string; cor?: string }[] = [
-    { titulo: 'Receita bruta do período', ...m(atual.entradas), dica: `${atual.qtd_entradas} venda(s) aprovada(s) na Hotmart (BRL)` },
-    { titulo: 'Taxas da Hotmart', ...m(atual.taxas_hotmart), dica: 'Descontadas da receita bruta' },
-    { titulo: 'Custos fixos', ...m(atual.custos_fixos), dica: 'Servidor, ferramentas, marketing... (não cancelados)' },
+    { titulo: 'Receita bruta do período', ...r(atual.entradas), dica: `${atual.qtd_entradas} venda(s) aprovada(s) na Hotmart (BRL)` },
+    { titulo: 'Taxas da Hotmart', ...r(atual.taxas_hotmart), dica: 'Descontadas da receita bruta' },
+    { titulo: 'Custos fixos', ...r(atual.custos_fixos), dica: 'Servidor, ferramentas, marketing... (não cancelados)' },
     { titulo: 'Serviços (OpenAI etc.)', ...m(atual.servicosBrl), dica: `${usd(atual.custo_servicos_usd)} cobrados em dólar${atual.custo_servicos_brl ? ` + ${formatCurrency(atual.custo_servicos_brl)} já em R$` : ''}` },
-    { titulo: 'Total de despesas', ...m(atual.despesas), dica: 'Taxas + custos fixos + serviços' },
-    { titulo: 'Lucro líquido do período', ...m(atual.lucro), dica: 'Receita bruta − total de despesas', cor: atual.lucro >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' },
-    { titulo: 'Custo médio por assinante', ...m(custoMedio), dica: 'Despesas do período ÷ assinantes ativos' },
+    { titulo: 'Total de despesas', ...r(atual.despesas), dica: 'Taxas + custos fixos + serviços' },
+    { titulo: 'Lucro líquido do período', ...r(atual.lucro), dica: 'Receita bruta − total de despesas', cor: atual.lucro >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' },
+    { titulo: 'Custo médio por assinante', ...r(custoMedio), dica: 'Despesas do período ÷ assinantes ativos' },
     { titulo: 'Assinantes ativos', valor: String(ativas), dica: 'Status Ativo agora (não depende do período)' },
     { titulo: 'Assinantes cancelados', valor: String(canceladas), dica: 'Status Cancelado' },
     { titulo: 'Taxa de cancelamento', valor: `${churn.toFixed(1).replace('.', ',')}%`, dica: `${canceladas} cancelado(s) de ${ativas + canceladas} (ativos + cancelados), hoje`, cor: churn > 10 ? 'text-red-600 dark:text-red-400' : undefined },
-    { titulo: 'Previsão próximo mês', ...m(previsao), dica: `${ativas} ativos × ticket médio ${formatCurrency(ticket)}` },
+    { titulo: 'Previsão próximo mês', ...r(previsao), dica: `${ativas} ativos × ticket médio ${formatCurrency(ticket)}` },
   ];
 
   return (
