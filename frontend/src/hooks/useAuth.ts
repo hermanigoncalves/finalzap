@@ -44,6 +44,7 @@ interface AuthState {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ data: { user: User | null; session: Session | null }; error: AuthError | null }>;
   signUp: (email: string, password: string) => Promise<{ data: { user: User | null; session: Session | null }; error: AuthError | null }>;
+  signInWithGoogle: () => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<void>;
   setUser: (user: User | null) => void;
   setSession: (session: Session | null) => void;
@@ -79,6 +80,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: result.data.user, session: result.data.session, loading: false });
     }
     return result;
+  },
+
+  // Redireciona para o Google e volta para o painel; o listener global abaixo recebe a sessão.
+  // Quem entra por aqui só vê dados se houver um perfil ligado (o App mostra aviso caso contrário).
+  signInWithGoogle: async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/`, queryParams: { prompt: 'select_account' } },
+    });
+    return { error };
   },
 
   signOut: async () => {

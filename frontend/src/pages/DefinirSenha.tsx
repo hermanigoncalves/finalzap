@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { validarSenha } from '../lib/senha';
+import { useAuth } from '../hooks/useAuth';
 import Brand from '../components/Brand';
 
 const TEMPO_ESPERA_SESSAO_MS = 10000;
@@ -13,6 +14,7 @@ const inputClass =
 
 export default function DefinirSenha() {
   const navigate = useNavigate();
+  const { signInWithGoogle } = useAuth();
   const [estado, setEstado]         = useState<Estado>('aguardando');
   const [senha, setSenha]           = useState('');
   const [confirmacao, setConfirmacao] = useState('');
@@ -45,6 +47,17 @@ export default function DefinirSenha() {
   useEffect(() => {
     if (estado === 'pronto') senhaRef.current?.focus();
   }, [estado]);
+
+  const entrarComGoogle = async () => {
+    setErro('');
+    setEnviando(true);
+    const { error } = await signInWithGoogle();
+    // Sem erro, o navegador já está indo para o Google.
+    if (error) {
+      setErro('Não foi possível continuar com o Google. Tente novamente ou defina uma senha.');
+      setEnviando(false);
+    }
+  };
 
   const enviar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -92,6 +105,21 @@ export default function DefinirSenha() {
           )}
 
           {estado === 'pronto' && (
+            <>
+              <p className="text-slate-300 text-sm mb-4 leading-relaxed">
+                Sua assinatura foi confirmada. Crie sua conta com o Google (use o mesmo e-mail da compra) ou defina uma senha.
+              </p>
+              <button
+                type="button" onClick={entrarComGoogle} disabled={enviando}
+                className="w-full py-2.5 rounded-lg bg-white hover:bg-slate-100 text-slate-800 font-semibold text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+              >
+                Continuar com Google
+              </button>
+              <div className="flex items-center gap-3 my-5" aria-hidden="true">
+                <span className="h-px flex-1 bg-white/10" />
+                <span className="text-xs text-slate-500">ou defina uma senha</span>
+                <span className="h-px flex-1 bg-white/10" />
+              </div>
             <form onSubmit={enviar} className="space-y-4" noValidate>
               <div className="space-y-1.5">
                 <label htmlFor="nova-senha" className="text-sm text-slate-300 font-medium">Nova senha</label>
@@ -126,6 +154,7 @@ export default function DefinirSenha() {
                 {enviando ? 'Aguarde...' : 'Definir senha e entrar'}
               </button>
             </form>
+            </>
           )}
         </div>
       </div>

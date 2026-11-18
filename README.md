@@ -35,4 +35,4 @@ Veja **[DEPLOY.md](DEPLOY.md)**: migrações do Supabase, variáveis da Vercel, 
 
 ## Código legado
 
-`bot-server/` (Baileys/QR code), `api/whatsapp/instances/*` e `lib/whatsapp/supabaseAuth.ts` pertencem ao canal antigo. Não evoluir; remover só com aprovação do dono. O canal oficial é a API da Meta tratada pelo n8n.
+`bot-server/` (Baileys/QR code) pertence ao canal antigo. Não evoluir. Os endpoints `api/whatsapp/instances/*` foram removidos. O canal oficial é a API da Meta tratada pelo n8n.

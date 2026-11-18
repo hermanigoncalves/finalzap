@@ -15,6 +15,7 @@ const cadeia = [
   '20261117000001_seguranca_rls.sql',
   '20261118000001_n8n_no_supabase.sql',
   '20261118000002_correcoes_qa.sql',
+  '20261118000003_credenciais_servico.sql',
   '20261118000004_entradas_dashboard_admin.sql',
   '20261118000005_taxas_hotmart_custos_usd.sql',
   '20261118000006_resumo_admin_periodo.sql',
@@ -59,7 +60,7 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
       for (const f of cadeia) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
     }
     const t = await q(`select count(*)::int c from pg_tables where schemaname='public'`);
-    assert.equal(t[0].c, 11);
+    assert.equal(t[0].c, 12);
   });
 
   it('normaliza telefone BR', async () => {

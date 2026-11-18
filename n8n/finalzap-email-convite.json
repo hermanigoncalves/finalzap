@@ -1,0 +1,96 @@
+{
+  "name": "FINALZAP - E-mail de convite",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "finalzap-email-convite",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000001",
+      "name": "Receber convite",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 300],
+      "webhookId": "7c2d4f10-5a6b-4e8f-9a31-0b1c2d3e4f50"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "b2000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.headers['x-webhook-secret'] }}",
+              "rightValue": "={{ $env.FINALZAP_EMAIL_SECRET }}",
+              "operator": { "type": "string", "operation": "equals" }
+            },
+            {
+              "id": "b2000000-0000-4000-8000-000000000002",
+              "leftValue": "={{ $env.FINALZAP_EMAIL_SECRET }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000002",
+      "name": "Segredo confere?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Receber convite').item.json.body.email }}",
+        "subject": "Sua assinatura do FinalZap foi confirmada 🎉",
+        "message": "=<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1f2937;\"><h2 style=\"color:#166534;margin:0 0 16px;\">Assinatura confirmada!</h2><p>Olá{{ $('Receber convite').item.json.body.nome ? ', ' + $('Receber convite').item.json.body.nome : '' }}! Recebemos o seu pagamento e o seu acesso ao <strong>FinalZap</strong>, o assistente financeiro no WhatsApp, já está liberado.</p><p>Falta só criar a sua conta. Clique no botão abaixo e escolha <strong>Continuar com Google</strong>:</p><p style=\"text-align:center;margin:28px 0;\"><a href=\"{{ $('Receber convite').item.json.body.link }}\" style=\"background:#22c55e;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:8px;display:inline-block;\">Criar minha conta</a></p><p style=\"font-size:14px;color:#4b5563;\"><strong>Importante:</strong> use a conta Google com o <strong>mesmo e-mail da compra</strong> ({{ $('Receber convite').item.json.body.email }}). Se preferir, você também pode definir uma senha na mesma tela.</p><p style=\"font-size:12px;color:#6b7280;margin-top:32px;\">Se o botão não funcionar, copie e cole este link no navegador:<br><span style=\"word-break:break-all;\">{{ $('Receber convite').item.json.body.link }}</span></p><p style=\"font-size:12px;color:#6b7280;\">Não reconhece esta compra? Ignore este e-mail.</p></div>",
+        "options": {}
+      },
+      "id": "a1000000-0000-4000-8000-000000000003",
+      "name": "Enviar e-mail (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [440, 200],
+      "webhookId": "9d3e5a21-6b7c-4f90-8b42-1c2d3e4f5a61"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true } }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "a1000000-0000-4000-8000-000000000004",
+      "name": "OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { erro: 'nao autorizado' } }}",
+        "options": { "responseCode": 401 }
+      },
+      "id": "a1000000-0000-4000-8000-000000000005",
+      "name": "Nao autorizado",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [440, 420]
+    }
+  ],
+  "connections": {
+    "Receber convite": { "main": [[{ "node": "Segredo confere?", "type": "main", "index": 0 }]] },
+    "Segredo confere?": {
+      "main": [
+        [{ "node": "Enviar e-mail (Gmail)", "type": "main", "index": 0 }],
+        [{ "node": "Nao autorizado", "type": "main", "index": 0 }]
+      ]
+    },
+    "Enviar e-mail (Gmail)": { "main": [[{ "node": "OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

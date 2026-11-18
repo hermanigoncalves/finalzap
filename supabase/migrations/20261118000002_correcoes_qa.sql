@@ -117,3 +117,39 @@ AS $$
          AND ((a.status = 'Ativo' AND (a.data_vencimento IS NULL OR a.data_vencimento > now()))
               OR (a.status = 'Cancelado' AND a.data_vencimento > now())))
 $$;
+
+-- 5. Login com Google (ou outro provedor) de quem já comprou.
+-- O convite da Hotmart cria o perfil ligado ao usuário do convite. Se o cliente entra depois com o Google
+-- (mesmo e-mail), o Supabase pode substituir o usuário e o perfil fica órfão (auth_id NULL, pela FK SET NULL).
+-- Esta função religa SÓ perfis órfãos, SÓ por e-mail já verificado (nunca troca o dono de um perfil existente).
+CREATE OR REPLACE FUNCTION public.vincular_perfil_por_email()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_email TEXT;
+  v_confirmado BOOLEAN;
+  v_perfil UUID;
+BEGIN
+  IF v_uid IS NULL THEN RETURN FALSE; END IF;
+  IF EXISTS (SELECT 1 FROM public.perfis WHERE auth_id = v_uid) THEN RETURN TRUE; END IF;
+
+  SELECT lower(u.email), (u.email_confirmed_at IS NOT NULL) INTO v_email, v_confirmado
+    FROM auth.users u WHERE u.id = v_uid;
+  IF v_email IS NULL OR NOT v_confirmado THEN RETURN FALSE; END IF;
+
+  SELECT p.id INTO v_perfil FROM public.perfis p
+   WHERE lower(p.email) = v_email AND p.auth_id IS NULL
+   ORDER BY p.created_at LIMIT 1;
+  IF v_perfil IS NULL THEN RETURN FALSE; END IF;
+
+  UPDATE public.perfis SET auth_id = v_uid WHERE id = v_perfil AND auth_id IS NULL;
+  RETURN FOUND;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.vincular_perfil_por_email() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.vincular_perfil_por_email() TO authenticated;

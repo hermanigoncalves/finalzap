@@ -8,6 +8,11 @@ Modelo atual (por telefone, em português) = migrações `2026111*`. `schema.sql
 3. `20261116000003_hotmart.sql`: hotmart_eventos, colunas de convite, assinaturas.telefone anulável.
 4. `20261117000001_seguranca_rls.sql`: policies por auth.uid() -> perfis, grants de perfis, realtime.
 5. `20261118000001_n8n_no_supabase.sql`: suporte ao nó nativo do Supabase no n8n (tabelas/views, sem RPC): telefone canônico em INSERT direto, trigger que lança a despesa ao `UPDATE contas_a_pagar SET status='paga'` (mesma `idempotency_key` `conta_<id>` da RPC), views `vw_resumo_mensal` e `vw_saldo` (security_invoker, só service_role), grants (anon sem acesso às tabelas).
+6. `20261118000002_correcoes_qa.sql`: correções da revisão de QA (inclui `vincular_perfil_por_email`).
+7. `20261118000003_credenciais_servico.sql`: tabela `credenciais_servico` (só service_role).
+8. `20261118000004_entradas_dashboard_admin.sql`: tabela `entradas` e `resumo_admin_mensal`.
+9. `20261118000005_taxas_hotmart_custos_usd.sql`: taxas da Hotmart e custos em USD.
+10. `20261118000006_resumo_admin_periodo.sql`: `resumo_admin_periodo`.
 
 Aplicação: SQL Editor, ou `supabase db push`. Teste num Postgres limpo: `npm i --no-save @electric-sql/pglite && node --test tests/sql_banco_limpo.test.mjs`.
 `seed.sql` não cria usuário/senha (use o Supabase Auth). Estado do banco real: `docs/banco-estado-atual.md`.

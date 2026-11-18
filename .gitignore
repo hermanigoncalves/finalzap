@@ -45,3 +45,6 @@ strix_runs/
 .env.production
 .env.staging
 
+
+# Credenciais OAuth baixadas do Google: nunca versionar
+client_secret*.json
