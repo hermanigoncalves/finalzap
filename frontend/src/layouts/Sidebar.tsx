@@ -21,6 +21,7 @@ import { ehUsuarioAdmin } from '../lib/financeService';
 
 // Menu do administrador: as abas do painel viram itens do menu lateral.
 const navItemsAdmin = [
+  { name: 'Dashboard',                    path: '/admin?aba=dashboard',   icon: LayoutDashboard },
   { name: 'Assinaturas (Hotmart)',        path: '/admin?aba=assinaturas', icon: Wallet     },
   { name: 'Tokens / Uso (OpenAI • WhatsApp)', path: '/admin?aba=tokens',     icon: Bot        },
   { name: 'Custos Fixos',                 path: '/admin?aba=custos',      icon: CreditCard },
@@ -39,7 +40,7 @@ export default function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean; setIsO
   const { signOut } = useAuth();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const { pathname, search } = useLocation();
-  const abaAtual = new URLSearchParams(search).get('aba') || 'assinaturas';
+  const abaAtual = new URLSearchParams(search).get('aba') || 'dashboard';
 
   useEffect(() => {
     let mounted = true;

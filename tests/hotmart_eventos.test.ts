@@ -142,3 +142,17 @@ test('lerWebhook: sem creation_date e deterministico', () => {
   delete c.creation_date;
   assert.deepEqual(lerWebhook(c), lerWebhook(c));
 });
+
+test('lerWebhook: lê valor e moeda da compra; ausentes ou inválidos viram null', () => {
+  const c: any = corpo();
+  c.data.purchase.price = { value: 29.9, currency_value: 'brl' };
+  c.data.purchase.hotmart_fee = { total: 2.5 };
+  const e = lerWebhook(c)!;
+  assert.equal(e.valor, 29.9);
+  assert.equal(e.moeda, 'BRL');
+  assert.equal(e.taxa, 2.5);
+  assert.equal(lerWebhook(corpo())!.taxa, null);
+  c.data.purchase.price = { value: -5 };
+  assert.equal(lerWebhook(c)!.valor, null);
+  assert.equal(lerWebhook(corpo())!.valor, null);
+});

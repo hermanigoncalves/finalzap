@@ -15,7 +15,14 @@ type EventoHotmart = {
   proximaCobranca: Date | null;
   aprovadoEm: Date | null;
   plano: string | null;
+  valor: number | null;
+  moeda: string | null;
+  taxa: number | null;
 };
+
+// Eventos que trazem dinheiro novo / que o devolvem (a transação é a mesma da compra).
+const EVENTOS_ENTRADA = ['PURCHASE_APPROVED', 'PURCHASE_COMPLETE'];
+const EVENTOS_ESTORNO = ['PURCHASE_CANCELED', 'PURCHASE_REFUNDED', 'PURCHASE_CHARGEBACK'];
 
 type Efeito = { status: StatusAssinatura; enviarConvite: boolean } | null;
 
@@ -48,6 +55,9 @@ export type Deps = {
   }): Promise<void>;
   convidar(dados: { email: string; nome: string; telefone: string | null }): Promise<void>;
   marcarConvite(codigo: string, erro: string | null): Promise<void>;
+  // Idempotentes (chave = transação). Opcionais para não quebrar quem não registra entradas.
+  registrarEntrada?(d: { transacao: string; assinanteCodigo: string | null; valor: number; moeda: string; taxa: number }): Promise<void>;
+  removerEntrada?(transacao: string): Promise<void>;
 };
 
 export type Resultado = { resultado: 'duplicado' | 'antigo' | 'processado'; convidou: boolean };
@@ -108,6 +118,19 @@ async function aplicar(
     telefone: e.telefone,
     plano: e.plano,
   });
+
+  // Entradas do dashboard. Falha aqui libera o evento e a retentativa regrava (idempotente).
+  if (EVENTOS_ENTRADA.includes(e.tipo) && e.valor) {
+    await deps.registrarEntrada?.({
+      transacao: e.transacao,
+      assinanteCodigo: e.assinanteCodigo,
+      valor: e.valor,
+      moeda: e.moeda ?? 'BRL',
+      taxa: e.taxa ?? 0,
+    });
+  } else if (EVENTOS_ESTORNO.includes(e.tipo)) {
+    await deps.removerEntrada?.(e.transacao);
+  }
 
   if (!efeito.enviarConvite || atual?.conviteEnviadoEm) {
     return { resultado: 'processado', convidou: false };

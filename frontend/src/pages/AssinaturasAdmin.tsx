@@ -7,6 +7,7 @@ import type { TipoAssinatura, CustoFixo, UsoServico } from '../lib/financeServic
 import { listar_todas_assinaturas, listar_todo_uso_servico, listar_todos_custos_fixos } from '../lib/financeService';
 import { Plus, Edit, Trash2, Save, Check, Mail } from 'lucide-react';
 import { traduzirRespostaReenvio } from '../lib/reenvio';
+import AdminDashboard from './AdminDashboard';
 
 const STATUS_CORES: Record<string, string> = {
   Ativo: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800/50',
@@ -15,7 +16,7 @@ const STATUS_CORES: Record<string, string> = {
   Inadimplente: 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 border-amber-200 dark:border-amber-800/40',
 };
 
-type Tab = 'assinaturas' | 'tokens' | 'custos';
+type Tab = 'dashboard' | 'assinaturas' | 'tokens' | 'custos';
 
 export default function Administrador() {
   const {
@@ -34,7 +35,7 @@ export default function Administrador() {
   const [custosFixos, setCustosFixos] = useState<CustoFixo[]>([]);
   const [params] = useSearchParams();
   const abaUrl = params.get('aba');
-  const tab: Tab = abaUrl === 'tokens' || abaUrl === 'custos' ? abaUrl : 'assinaturas';
+  const tab: Tab = abaUrl === 'tokens' || abaUrl === 'custos' || abaUrl === 'assinaturas' ? abaUrl : 'dashboard';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [custoModalOpen, setCustoModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -364,6 +365,7 @@ export default function Administrador() {
       )}
 
       {/* Conteúdo das abas */}
+      {tab === 'dashboard' && <AdminDashboard />}
       {tab === 'assinaturas' && (
         <>
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">

@@ -252,3 +252,23 @@ test('convite OK mas marcarConvite(null) lança: processado, convidou, sem liber
   assert.equal(chamadas.liberar.length, 0);
   assert.equal(chamadas.convidar.length, 1);
 });
+
+test('compra aprovada com valor registra a entrada; sem valor não registra', async () => {
+  const entradas: any[] = [];
+  const { deps } = falsas();
+  (deps as any).registrarEntrada = async (d: any) => { entradas.push(d); };
+  await processarEvento(deps, evento({ valor: 29.9, moeda: 'BRL', taxa: 2.5 }), APROVADO, VENC);
+  await processarEvento(deps, evento({ transacao: 'HP2', valor: null }), APROVADO, VENC);
+  assert.deepEqual(entradas, [{ transacao: 'HP1', assinanteCodigo: 'SUB1', valor: 29.9, moeda: 'BRL', taxa: 2.5 }]);
+});
+
+test('reembolso, chargeback e cancelamento removem a entrada da transação', async () => {
+  const removidas: string[] = [];
+  const { deps } = falsas();
+  (deps as any).removerEntrada = async (t: string) => { removidas.push(t); };
+  const inativo = { status: 'Inativo', enviarConvite: false } as const;
+  for (const tipo of ['PURCHASE_REFUNDED', 'PURCHASE_CHARGEBACK', 'PURCHASE_CANCELED']) {
+    await processarEvento(deps, evento({ tipo, transacao: `T-${tipo}` }), inativo, null);
+  }
+  assert.deepEqual(removidas, ['T-PURCHASE_REFUNDED', 'T-PURCHASE_CHARGEBACK', 'T-PURCHASE_CANCELED']);
+});

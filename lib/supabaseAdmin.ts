@@ -25,20 +25,45 @@ export function criarClienteAdmin(): SupabaseClient {
   });
 }
 
-export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
-  // shortcut: varre até 10 mil usuários do Auth (listUsers não filtra por e-mail); trocar por RPC se passar disso.
-  async function acharUsuarioId(email: string): Promise<string | null> {
-    const alvo = email.toLowerCase();
-    for (let page = 1; page <= 10; page++) {
-      const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
-      if (error) throw new Error('Falha ao buscar usuário');
-      const u = data.users.find((x) => x.email?.toLowerCase() === alvo);
-      if (u) return u.id;
-      if (data.users.length < 1000) return null;
-    }
-    return null;
+// O Supabase so gera o link (sem enviar e-mail); quem envia e o n8n, pelo webhook abaixo.
+// Convite para conta nova; se o e-mail ja tem conta, link de recuperacao (abre a mesma tela).
+async function enviarLinkPeloN8n(
+  db: SupabaseClient,
+  email: string,
+  nome: string | undefined,
+  redirectTo: string,
+): Promise<{ userId: string | null; tipo: 'convite' | 'redefinicao' }> {
+  const url = process.env.N8N_EMAIL_WEBHOOK_URL;
+  if (!url) throw new Error('N8N_EMAIL_WEBHOOK_URL ausente');
+
+  let tipo: 'convite' | 'redefinicao' = 'convite';
+  let r = await db.auth.admin.generateLink({
+    type: 'invite',
+    email,
+    options: { data: { nome }, redirectTo },
+  });
+  if (usuarioJaCadastrado(r.error)) {
+    tipo = 'redefinicao';
+    r = await db.auth.admin.generateLink({ type: 'recovery', email, options: { redirectTo } });
+  }
+  if (r.error || !r.data?.properties?.action_link) {
+    throw new Error(erroSeguro('Falha ao gerar link', r.error ?? {}));
   }
 
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-webhook-secret': process.env.N8N_EMAIL_WEBHOOK_SECRET ?? '',
+    },
+    body: JSON.stringify({ email, nome: nome ?? '', tipo, link: r.data.properties.action_link }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!resp.ok) throw new Error(`Falha ao enviar e-mail pelo n8n (HTTP ${resp.status})`);
+  return { userId: r.data.user?.id ?? null, tipo };
+}
+
+export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
   // Cria o perfil so se nao existir para este auth_id nem para este telefone.
   // Nunca faz upsert: isso poderia trocar o auth_id de um perfil existente.
   async function garantirPerfil(
@@ -105,20 +130,21 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
       await gravarAssinaturaCondicional(db, d);
     },
 
+    async registrarEntrada(d) {
+      const { error } = await db.from('entradas').upsert(
+        { transacao: d.transacao, assinante_codigo: d.assinanteCodigo, valor: d.valor, moeda: d.moeda, taxa: d.taxa },
+        { onConflict: 'transacao', ignoreDuplicates: true },
+      );
+      if (error) throw new Error(erroSeguro('Falha ao registrar entrada', error));
+    },
+
+    async removerEntrada(transacao) {
+      const { error } = await db.from('entradas').delete().eq('transacao', transacao);
+      if (error) throw new Error(erroSeguro('Falha ao remover entrada', error));
+    },
+
     async convidar({ email, nome, telefone }) {
-      const { data, error } = await db.auth.admin.inviteUserByEmail(email, {
-        data: { nome },
-        redirectTo: `${appUrl}/definir-senha`,
-      });
-      let userId: string | null = null;
-      if (usuarioJaCadastrado(error)) {
-        // Já tem conta (ex.: se cadastrou antes de comprar): reaproveita, para garantir o perfil.
-        userId = await acharUsuarioId(email);
-      } else if (error) {
-        throw new Error(erroSeguro('Falha ao convidar', error));
-      } else {
-        userId = data.user?.id ?? null;
-      }
+      const { userId } = await enviarLinkPeloN8n(db, email, nome, `${appUrl}/definir-senha`);
       if (!userId) return;
       if (!telefone) {
         // Sem telefone não há como vincular o perfil: avisa o admin em vez de calar.
@@ -206,12 +232,7 @@ export function criarDepsReenvio(db: SupabaseClient, appUrl: string) {
     },
 
     async enviarEmail(a: { id: string; email: string }): Promise<'convite' | 'redefinicao'> {
-      const { error } = await db.auth.admin.inviteUserByEmail(a.email, { redirectTo });
-      if (!error) return 'convite';
-      if (!usuarioJaCadastrado(error)) throw new Error(erroSeguro('Falha ao convidar', error));
-      const r = await db.auth.resetPasswordForEmail(a.email, { redirectTo });
-      if (r.error) throw new Error(erroSeguro('Falha ao enviar redefinição', r.error));
-      return 'redefinicao';
+      return (await enviarLinkPeloN8n(db, a.email, undefined, redirectTo)).tipo;
     },
 
     async registrarReenvio(assinaturaId: string, adminId: string): Promise<void> {

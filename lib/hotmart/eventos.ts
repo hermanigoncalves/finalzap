@@ -15,6 +15,9 @@ export type EventoHotmart = {
   proximaCobranca: Date | null;
   aprovadoEm: Date | null;
   plano: string | null;
+  valor: number | null;
+  moeda: string | null;
+  taxa: number | null; // taxa da Hotmart sobre a venda
 };
 
 export type Efeito = { status: StatusAssinatura; enviarConvite: boolean } | null;
@@ -55,6 +58,10 @@ const CAMPOS = {
   proximaCobranca: [['data', 'purchase', 'date_next_charge'], ['data', 'date_next_charge']],
   assinanteCodigo: [['data', 'subscription', 'subscriber', 'code'], ['data', 'subscriber', 'code']],
   plano: [['data', 'subscription', 'plan', 'name']],
+  // ATENÇÃO: caminhos do valor (schema v2.0.0) ainda não conferidos com um payload real de compra.
+  valor: [['data', 'purchase', 'price', 'value']],
+  moeda: [['data', 'purchase', 'price', 'currency_value']],
+  taxa: [['data', 'purchase', 'hotmart_fee', 'total']],
 } as const;
 
 // Primeiro caminho que existir.
@@ -83,6 +90,11 @@ function texto(v: unknown): string | null {
   if (typeof v === 'string') return v.trim() === '' ? null : v.trim();
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   return null;
+}
+
+function numero(v: unknown): number | null {
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null;
 }
 
 // Aceita milissegundos (numero) ou texto ISO; invalida vira null.
@@ -117,6 +129,9 @@ export function lerWebhook(corpo: unknown): EventoHotmart | null {
     proximaCobranca: data(obterPrimeiro(corpo, CAMPOS.proximaCobranca)),
     aprovadoEm: data(obterPrimeiro(corpo, CAMPOS.aprovadoEm)),
     plano: texto(obterPrimeiro(corpo, CAMPOS.plano)),
+    valor: numero(obterPrimeiro(corpo, CAMPOS.valor)),
+    moeda: texto(obterPrimeiro(corpo, CAMPOS.moeda))?.toUpperCase() ?? null,
+    taxa: numero(obterPrimeiro(corpo, CAMPOS.taxa)),
   };
 }
 

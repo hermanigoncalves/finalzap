@@ -15,6 +15,8 @@ const cadeia = [
   '20261117000001_seguranca_rls.sql',
   '20261118000001_n8n_no_supabase.sql',
   '20261118000002_correcoes_qa.sql',
+  '20261118000004_entradas_dashboard_admin.sql',
+  '20261118000005_taxas_hotmart_custos_usd.sql',
 ];
 
 let PGlite;
@@ -42,7 +44,7 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     // Stubs do que o Supabase fornece.
     await db.exec(`
       create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
-      create schema auth; create table auth.users(id uuid primary key default gen_random_uuid(), email text);
+      create schema auth; create table auth.users(id uuid primary key default gen_random_uuid(), email text, email_confirmed_at timestamptz);
       create function auth.uid() returns uuid language sql stable as
         $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
       grant usage on schema public, auth to anon, authenticated, service_role;
@@ -56,7 +58,7 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
       for (const f of cadeia) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
     }
     const t = await q(`select count(*)::int c from pg_tables where schemaname='public'`);
-    assert.equal(t[0].c, 10);
+    assert.equal(t[0].c, 11);
   });
 
   it('normaliza telefone BR', async () => {
@@ -243,5 +245,69 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
       await q(`insert into public.assinaturas(telefone, nome, email, status, data_vencimento) values ('${tel}','Acesso','acesso${i}@t.local','${status}',${venc})`);
       assert.equal(await rpc('verificar_assinatura_ativa', tel), esperado, `${status} / ${venc}`);
     }
+  });
+  it('Login Google: religa perfil órfão só por e-mail verificado; não rouba perfil de outro nem aceita anon', async () => {
+    const G = '33333333-3333-3333-3333-333333333333'; // Google, e-mail verificado
+    const U = '44444444-4444-4444-4444-444444444444'; // e-mail não verificado
+    const D = '55555555-5555-5555-5555-555555555555'; // dono de um perfil já ligado
+    await db.exec('reset role');
+    await db.exec(`
+      insert into auth.users(id,email,email_confirmed_at) values
+        ('${G}','cliente@x.com', now()), ('${U}','naoverificado@x.com', null), ('${D}','dono@x.com', now());
+      insert into public.perfis(auth_id, telefone, email) values
+        (null,'5511966660001','Cliente@X.com'),   -- órfão do cliente Google
+        (null,'5511966660002','naoverificado@x.com'),
+        ('${D}','5511966660003','dono@x.com');`);
+
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${G}'`);
+    assert.equal(await rpc('vincular_perfil_por_email'), true);
+    await db.exec('reset role');
+    assert.equal((await q(`select auth_id from public.perfis where telefone='5511966660001'`))[0].auth_id, G);
+
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U}'`);
+    assert.equal(await rpc('vincular_perfil_por_email'), false); // e-mail não verificado: não liga
+    await db.exec('reset role');
+    assert.equal((await q(`select auth_id from public.perfis where telefone='5511966660002'`))[0].auth_id, null);
+
+    // perfil que já tem dono nunca é trocado
+    await db.exec(`insert into auth.users(id,email,email_confirmed_at) values ('66666666-6666-6666-6666-666666666666','dono@x.com', now())`);
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='66666666-6666-6666-6666-666666666666'`);
+    assert.equal(await rpc('vincular_perfil_por_email'), false);
+    await db.exec('reset role; set role anon');
+    await assert.rejects(() => rpc('vincular_perfil_por_email'), /permission denied/);
+    await db.exec('reset role');
+    assert.equal((await q(`select auth_id from public.perfis where telefone='5511966660003'`))[0].auth_id, D);
+  });
+  it('resumo_admin_mensal: só admin enxerga; soma entradas BRL, custos fixos e uso do mês', async () => {
+    const ADM = '77777777-7777-7777-7777-777777777777';
+    const USR = '88888888-8888-8888-8888-888888888888';
+    await db.exec(`
+      insert into auth.users(id,email) values ('${ADM}','adm@x.com'), ('${USR}','usr@x.com');
+      insert into public.perfis(auth_id, telefone, email, role) values
+        ('${ADM}','5511955550001','adm@x.com','admin'), ('${USR}','5511955550002','usr@x.com','user');
+      insert into public.entradas(transacao, valor, moeda, taxa) values ('HP-A', 100, 'BRL', 7), ('HP-B', 50, 'USD', 3);
+      insert into public.custos_fixos(telefone, descricao, valor, categoria, vencimento) values
+        ('5511955550001','VPS', 30, 'servidor', current_date),
+        ('5511955550001','Cancelado', 99, 'outro', current_date);
+      update public.custos_fixos set status='cancelado' where descricao='Cancelado';
+      insert into public.uso_servico(telefone, servico, custo_usd, custo_brl) values ('5511955550001','openai', 2, 11), ('5511955550001','whatsapp', 0, 4);`);
+
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${USR}'`);
+    assert.equal((await q(`select count(*)::int c from public.entradas`))[0].c, 0); // RLS: cliente não vê
+    assert.equal(Number((await q(`select sum(entradas) s from public.resumo_admin_mensal(6)`))[0].s), 0);
+
+    await db.exec(`set request.jwt.claim.sub='${ADM}'`);
+    const linhas = await q(`select * from public.resumo_admin_mensal(6)`);
+    assert.equal(linhas.length, 6);
+    const atual = linhas[linhas.length - 1];
+    assert.equal(atual.qtd_entradas, 1);
+    assert.equal(Number(atual.entradas), 100); // USD não entra na soma em reais
+    assert.equal(Number(atual.custos_fixos), 30); // cancelado fora
+    assert.equal(Number(atual.taxas_hotmart), 7); // taxa em USD fora
+    assert.ok(Math.abs(Number(atual.custo_servicos_usd) - 2) < 0.01); // inclui uso de outros testes
+    assert.ok(Math.abs(Number(atual.custo_servicos_brl) - 4) < 0.01); // linha com USD não conta em BRL
+    await db.exec('reset role; set role anon');
+    await assert.rejects(() => q(`select * from public.resumo_admin_mensal(6)`), /permission denied/);
+    await db.exec('reset role');
   });
 });

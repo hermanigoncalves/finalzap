@@ -119,7 +119,13 @@ export async function resolverPerfilUsuario(): Promise<PerfilUsuario | null> {
       .eq('auth_id', userId)
       .maybeSingle();
     if (error) throw error;
-    return (perfil ?? null) as PerfilUsuario | null;
+    if (perfil) return perfil as PerfilUsuario;
+
+    // Login novo (ex.: Google) de quem já comprou: liga o perfil órfão pelo e-mail verificado e relê.
+    const { data: vinculou } = await supabase.rpc('vincular_perfil_por_email');
+    if (vinculou !== true) return null;
+    const { data: depois } = await supabase.from('perfis').select('*').eq('auth_id', userId).maybeSingle();
+    return (depois ?? null) as PerfilUsuario | null;
   })();
   perfilEmCache = { userId, promessa };
   // Falha ou perfil ausente não fica em cache (pode ser criado depois).
@@ -968,4 +974,31 @@ export function formatar_moeda_brl(valor: number): string {
     style: 'currency',
     currency: 'BRL',
   }).format(valor);
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard do administrador (RPC resumo_admin_mensal; a RLS limita ao admin)
+// ---------------------------------------------------------------------------
+export interface ResumoAdminMes {
+  mes: string; // YYYY-MM
+  entradas: number;
+  qtd_entradas: number;
+  taxas_hotmart: number;
+  custos_fixos: number;
+  custo_servicos_usd: number;
+  custo_servicos_brl: number;
+}
+
+export async function resumo_admin_mensal(meses = 6): Promise<ResumoAdminMes[]> {
+  const { data, error } = await supabase.rpc('resumo_admin_mensal', { meses });
+  if (error) throw error;
+  return (data || []).map((r: Record<string, unknown>) => ({
+    mes: String(r.mes),
+    entradas: Number(r.entradas) || 0,
+    qtd_entradas: Number(r.qtd_entradas) || 0,
+    taxas_hotmart: Number(r.taxas_hotmart) || 0,
+    custos_fixos: Number(r.custos_fixos) || 0,
+    custo_servicos_usd: Number(r.custo_servicos_usd) || 0,
+    custo_servicos_brl: Number(r.custo_servicos_brl) || 0,
+  }));
 }
