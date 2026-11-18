@@ -1,5 +1,5 @@
-import { validateJwtAuth } from '../../lib/auth/jwtAuth';
-import { aplicarCors, clienteServico } from '../../lib/serverEnv';
+import { aplicarCors } from '../../lib/serverEnv';
+import { exigirAdmin, lerCredencial } from '../../lib/admin/credenciais';
 import { intervaloDoMes, montarUrlPricing, lerPricingAnalytics } from '../../lib/whatsapp/metaMetricas';
 
 /** Custo real do mês na Meta (pricing_analytics). Somente administrador. */
@@ -8,24 +8,15 @@ export default async function handler(req: any, res: any) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  const auth = await validateJwtAuth(req);
-  if (!auth.user) return res.status(auth.statusCode).json({ error: auth.error });
-
-  const token = process.env.META_ACCESS_TOKEN;
-  const wabaId = process.env.META_WABA_ID;
-  if (!token || !wabaId) {
-    return res.status(500).json({ error: 'META_ACCESS_TOKEN e META_WABA_ID não configurados.' });
-  }
-
   try {
-    // O papel é lido do banco com a chave de serviço, nunca do navegador.
-    const supabase = clienteServico();
-    const { data: perfil } = await supabase
-      .from('perfis')
-      .select('role')
-      .eq('auth_id', auth.user.id)
-      .maybeSingle();
-    if (perfil?.role !== 'admin') return res.status(403).json({ error: 'Acesso negado.' });
+    const supabase = await exigirAdmin(req, res);
+    if (!supabase) return;
+
+    const token = await lerCredencial(supabase, 'META_ACCESS_TOKEN');
+    const wabaId = await lerCredencial(supabase, 'META_WABA_ID');
+    if (!token || !wabaId) {
+      return res.status(500).json({ error: 'Token e ID da conta da Meta não configurados.' });
+    }
 
     const { inicio, fim } = intervaloDoMes(new Date());
     const url = montarUrlPricing(wabaId, inicio, fim, process.env.META_GRAPH_VERSION || 'v21.0');

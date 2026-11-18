@@ -45,6 +45,11 @@ export default function Administrador() {
   const [metaLinhas, setMetaLinhas] = useState<{ categoria: string; volume: number; custo: number }[] | null>(null);
   const [metaErro, setMetaErro] = useState<string | null>(null);
   const [metaCarregando, setMetaCarregando] = useState(false);
+  const [credenciais, setCredenciais] = useState<{ chave: string; configurada: boolean; final: string | null }[]>([]);
+  const [credValores, setCredValores] = useState<Record<string, string>>({});
+  const [credMsg, setCredMsg] = useState<string | null>(null);
+  const [openaiCusto, setOpenaiCusto] = useState<{ total: number; moeda: string } | null>(null);
+  const [openaiErro, setOpenaiErro] = useState<string | null>(null);
   const [erroLocal, setErroLocal] = useState<string | null>(null);
   const [usoForm, setUsoForm] = useState({
     servico: 'openai' as ServicoUso,
@@ -103,8 +108,55 @@ export default function Administrador() {
     }
   };
 
+  const chamarApi = async (url: string, init: RequestInit = {}) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Sessão expirada.');
+    const res = await fetch(url, {
+      ...init,
+      headers: { ...init.headers, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error || 'Falha na consulta.');
+    return json;
+  };
+
+  const carregarOpenai = async () => {
+    setOpenaiErro(null);
+    try {
+      setOpenaiCusto(await chamarApi('/api/admin/openai-custos'));
+    } catch (e) {
+      setOpenaiCusto(null);
+      setOpenaiErro(e instanceof Error ? e.message : 'Falha ao consultar a OpenAI.');
+    }
+  };
+
+  const carregarCredenciais = async () => {
+    try {
+      setCredenciais((await chamarApi('/api/admin/credenciais')).credenciais ?? []);
+    } catch (e) {
+      setCredMsg(e instanceof Error ? e.message : 'Falha ao carregar credenciais.');
+    }
+  };
+
+  const salvarCredencial = async (chave: string, valor: string) => {
+    setCredMsg(null);
+    try {
+      const json = await chamarApi('/api/admin/credenciais', { method: 'PUT', body: JSON.stringify({ chave, valor }) });
+      setCredenciais(json.credenciais ?? []);
+      setCredValores((v) => ({ ...v, [chave]: '' }));
+      setCredMsg(valor ? 'Credencial salva.' : 'Credencial removida.');
+      void carregarMeta();
+      void carregarOpenai();
+    } catch (e) {
+      setCredMsg(e instanceof Error ? e.message : 'Falha ao salvar.');
+    }
+  };
+
   useEffect(() => {
-    if (tab === 'tokens') void carregarMeta();
+    if (tab !== 'tokens') return;
+    void carregarMeta();
+    void carregarOpenai();
+    void carregarCredenciais();
   }, [tab]);
 
   const executar = async (acao: () => Promise<unknown>): Promise<boolean> => {
@@ -623,6 +675,50 @@ export default function Administrador() {
               ))
             )}
           </div>
+          <Card>
+            <CardHeader><CardTitle>Credenciais dos serviços</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-xs text-slate-500">
+                Cole aqui as chaves para o painel buscar os custos reais. Ficam guardadas só no servidor e nunca são exibidas de volta.
+              </p>
+              {([
+                ['META_ACCESS_TOKEN', 'Meta: token de acesso (usuário do sistema)'],
+                ['META_WABA_ID', 'Meta: ID da conta do WhatsApp Business'],
+                ['OPENAI_ADMIN_KEY', 'OpenAI: chave admin (sk-admin-...)'],
+              ] as const).map(([chave, rotulo]) => {
+                const atual = credenciais.find((c) => c.chave === chave);
+                const valor = credValores[chave] || '';
+                return (
+                  <div key={chave} className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      aria-label={rotulo}
+                      placeholder={atual?.configurada ? `${rotulo} (configurada, termina em ${atual.final})` : rotulo}
+                      value={valor}
+                      onChange={(e) => setCredValores({ ...credValores, [chave]: e.target.value })}
+                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                    />
+                    <Button type="button" size="sm" disabled={!valor.trim()} onClick={() => void salvarCredencial(chave, valor)}>Salvar</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!atual?.configurada} onClick={() => void salvarCredencial(chave, '')}>Remover</Button>
+                  </div>
+                );
+              })}
+              {credMsg && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{credMsg}</p>}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>OpenAI: gasto real do mês</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {openaiErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{openaiErro}</p>}
+              {openaiCusto && (
+                <p className="text-2xl font-bold text-slate-900 dark:text-white">
+                  {openaiCusto.total.toFixed(2)} <span className="text-xs font-normal text-slate-400 uppercase">{openaiCusto.moeda}</span>
+                </p>
+              )}
+              <Button type="button" variant="outline" size="sm" onClick={() => void carregarOpenai()}>Atualizar da OpenAI</Button>
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader>
               <CardTitle>WhatsApp oficial (Meta): custo real do mês</CardTitle>
