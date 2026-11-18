@@ -1,0 +1,1480 @@
+{
+  "name": "FINALZAP - Supabase",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "id": "3bd0121a-8594-4726-b554-4fc3ba23f114",
+      "name": "Mensagem no WhatsApp",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "4d8514ba-67fa-477d-b57b-baf6ea2c9afd",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "I4lbPEZQQ0c7RLib",
+          "name": "WhatsApp OAuth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cca897f0-95f7-42de-aef1-9707ca2cf47d",
+              "leftValue": "={{ $json.messages?.[0]?.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e3937962-d655-4c92-8822-d4527cfa9887",
+      "name": "É mensagem de usuário?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst msg = body.messages?.[0] ?? {};\nconst from = String(msg.from ?? body.contacts?.[0]?.wa_id ?? '');\n// Mesma regra de public.normalizar_telefone_br\nlet d = from.replace(/\\D/g, '').replace(/^0+/, '');\nif (d.length === 10 || d.length === 11) d = '55' + d;\nif (d.length === 12 && d.startsWith('55') && /[6-9]/.test(d[4])) d = d.slice(0, 4) + '9' + d.slice(4);\n// variante antiga sem o 9º dígito (cadastros antigos); iguais quando não se aplica\nconst alt = (d.length === 13 && d.startsWith('55') && d[4] === '9') ? d.slice(0, 4) + d.slice(5) : d;\nconst sp = DateTime.now().setZone('America/Sao_Paulo');\nreturn [{ json: {\n  telefone: d,\n  telefone_alt: alt,\n  wa_id: from,\n  message_id: msg.id,\n  tipo: msg.type,\n  texto: msg.text?.body ?? '',\n  audio_id: msg.audio?.id ?? null,\n  phone_number_id: body.metadata?.phone_number_id,\n  hoje: sp.toFormat('yyyy-MM-dd'),\n  mes: sp.toFormat('yyyy-MM'),\n} }];"
+      },
+      "id": "731466f1-8852-45b8-9c2d-c26f581b186b",
+      "name": "Normalizar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "assinaturas",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $json.telefone + ',' + $json.telefone_alt + ')&status=in.(Ativo,Cancelado)' }}"
+      },
+      "id": "0106035a-35ba-4abe-ab51-f7586b4dac0e",
+      "name": "Buscar assinatura",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// ativa = 'Ativo' (vencimento nulo ou futuro) ou 'Cancelado' ainda dentro do período pago (vencimento futuro).\n// Sem renovação, o acesso fecha sozinho quando o vencimento passa.\nconst agora = new Date();\nconst vale = (r) => { const v = r.data_vencimento ? new Date(r.data_vencimento) > agora : null; return r.status === 'Ativo' ? (v === null || v) : r.status === 'Cancelado' ? v === true : false; };\nconst ativa = $input.all().map(i => i.json).some(r => r.telefone && vale(r));\nreturn [{ json: { ativa } }];"
+      },
+      "id": "802c4250-ad28-4d09-aad4-d7cad1aa487b",
+      "name": "Avaliar assinatura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8d917257-d4c3-41fe-995d-275e4d03a683",
+              "leftValue": "={{ $json.ativa }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "baf8c433-dddf-41f8-b69c-d7c7731253b3",
+      "name": "Assinatura ativa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "25839a0b-05c1-451c-a88b-ae3c00f26aa6",
+                    "leftValue": "={{ $('Normalizar mensagem').first().json.tipo }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "text"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "a7fc6e4e-6c7e-4ff6-8115-9401078cc130",
+                    "leftValue": "={{ $('Normalizar mensagem').first().json.tipo }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "audio"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "outro"
+        }
+      },
+      "id": "0e5150f7-fb09-4d22-90fe-17a636115604",
+      "name": "Tipo da mensagem",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Normalizar mensagem').first().json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Normalizar mensagem').first().json.wa_id }}",
+        "textBody": "=Olá! 👋💚 Bem-vindo ao FINALZAP!\n\nNão encontramos uma assinatura ativa vinculada a este WhatsApp.\n\n💰 Assine por R$ 19,90/mês para controlar suas despesas, receitas e contas.\n\nFaça sua assinatura aqui:\nhttps://pay.hotmart.com/N108346496T\n\nSe você já assinou, entre em contato para verificarmos seu acesso.",
+        "additionalFields": {}
+      },
+      "id": "de7fcd9e-7c5f-4d2d-a98f-396999b9bee2",
+      "name": "Enviar convite de assinatura",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        560
+      ],
+      "webhookId": "297ce0e1-923b-418b-9d58-548c90f56bd0",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Normalizar mensagem').first().json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Normalizar mensagem').first().json.wa_id }}",
+        "textBody": "Por enquanto eu só entendo mensagens de texto e áudio. Pode me mandar o que precisa por texto? 😊",
+        "additionalFields": {}
+      },
+      "id": "36991291-196e-48a0-a3b0-3e1f128050ae",
+      "name": "Responder tipo não suportado",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        480
+      ],
+      "webhookId": "3c91cf12-23a5-47f0-b084-3788c21f56ed",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Normalizar mensagem').first().json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Normalizar mensagem').first().json.wa_id }}",
+        "textBody": "Desculpe, tive um problema aqui e não consegui processar sua mensagem agora. Tente de novo em alguns minutos, por favor.",
+        "additionalFields": {}
+      },
+      "id": "89087ba8-f935-431d-8342-9d4323d24a4d",
+      "name": "Responder erro",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        560
+      ],
+      "webhookId": "5c099dd9-801b-4526-b4f7-01eafcf47ccb",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "media",
+        "operation": "mediaUrlGet",
+        "mediaGetId": "={{ $('Normalizar mensagem').first().json.audio_id }}"
+      },
+      "id": "962da16f-8ffc-4372-8667-ee216192f9ac",
+      "name": "Obter URL do áudio",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1540,
+        300
+      ],
+      "webhookId": "65b38eae-8008-43c4-ba41-4308bba8ca98",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "9e655505-c542-4900-b4d5-dfe9179b8709",
+      "name": "Baixar áudio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1760,
+        300
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {
+          "language": "pt"
+        }
+      },
+      "id": "8dd277a8-f0eb-4321-8240-d3a7cda96969",
+      "name": "Transcrever áudio",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1980,
+        300
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $(\"Normalizar mensagem\").first().json.texto || $json.text }}",
+        "options": {
+          "systemMessage": "=FUNÇÕES FINANCEIRAS DO FINALZAP\nVocê é um assistente financeiro pessoal pelo WhatsApp. Responda sempre em português brasileiro, de maneira simpática, curta e clara.\nHoje é {{ $('Normalizar mensagem').first().json.hoje }} (fuso America/Sao_Paulo). Use essa data para entender \"hoje\", \"ontem\", \"dia 10\", \"mês passado\" etc. O mês atual é {{ $('Normalizar mensagem').first().json.mes }} (AAAA-MM).\n\nUse as ferramentas disponíveis para:\n1. Registrar receitas e despesas (registrar_movimentacao), identificando valor, categoria e descrição.\n2. Consultar movimentações (consultar_movimentacoes) e o saldo geral (saldo_total).\n3. Apresentar resumos mensais de receitas e despesas por categoria (resumo_mensal).\n4. Orçamentos por categoria: antes de definir, chame consultar_orcamentos. Se a categoria já tiver orçamento, use atualizar_orcamento; se não tiver, use salvar_orcamento. Para mostrar orçamento x gasto, cruze consultar_orcamentos com as despesas da categoria em resumo_mensal e calcule o restante.\n5. Cadastrar contas a pagar (cadastrar_conta_a_pagar) e consultar vencimentos (consultar_contas_a_pagar).\n6. Marcar contas como pagas (marcar_conta_como_paga): primeiro chame consultar_contas_a_pagar para achar o id da conta e só então marque. Se houver mais de uma conta parecida, pergunte qual. A despesa correspondente é criada automaticamente pelo sistema: NÃO registre a despesa de novo com registrar_movimentacao.\n7. Oferecer dicas simples de economia.\nNunca peça nem informe telefone: o sistema já sabe quem é o cliente.\nNunca invente movimentações, saldos ou pagamentos. Consulte os registros antes de responder.\nMOEDA: o FINALZAP trabalha somente em reais (BRL). Todos os valores são em reais. Se o cliente falar em dólar (US$, USD, dollars) ou outra moeda, explique que o FINALZAP só registra valores em reais e não registre nada, sem perguntar qual é a moeda. Se o cliente não citar moeda, assuma reais.\nQuando faltar valor, vencimento ou outra informação essencial, pergunte ao cliente antes de registrar.\nApós cada registro, confirme o tipo, valor, categoria e descrição da movimentação.\nREGRA OBRIGATÓRIA: Quando o cliente informar uma receita ou despesa com os dados necessários, use a ferramenta registrar_movimentacao para salvar no banco de dados. Nunca diga que registrou ou que vai registrar sem executar a ferramenta. Só confirme o registro depois que a ferramenta retornar sucesso (a linha criada). Se a ferramenta retornar erro de chave duplicada (duplicate key, 23505 ou idempotency_key), isso significa que esta mensagem já tinha sido registrada: diga que já estava registrado e não tente de novo. Qualquer outro erro: informe que não foi possível salvar. Para café, padaria e refeições, utilize a categoria Alimentação.\nDespesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Outros. Receitas: Salário, Freelance, Vendas, Outros.",
+          "enableStreaming": false
+        }
+      },
+      "id": "9a4d5785-397b-4f72-b1b8-d542c3f81678",
+      "name": "Assistente FINALZAP",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        2200,
+        200
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.4-mini",
+          "cachedResultName": "gpt-5.4-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "d9d054bb-2aec-4d36-804d-b18bcdbef376",
+      "name": "Modelo OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1960,
+        560
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Normalizar mensagem').first().json.telefone }}",
+        "contextWindowLength": 10
+      },
+      "id": "0fa8bf5c-5518-43dc-9c42-760e5cc7ee50",
+      "name": "Memória da conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [
+        2080,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Normalizar mensagem').first().json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Normalizar mensagem').first().json.wa_id }}",
+        "textBody": "={{ $json.output }}",
+        "additionalFields": {}
+      },
+      "id": "938deb08-6fee-4ba6-a9ad-89586e3bc01e",
+      "name": "Responder no WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        200
+      ],
+      "webhookId": "007ce63e-5124-4d5d-99b6-5392f655cc9a",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "movimentacoes",
+        "__d": "Registra uma receita ou despesa em reais (BRL) do cliente. Retorna a linha criada quando salvou. Erro de chave duplicada (idempotency_key) significa que já estava registrado. O telefone é automático.",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "tipo",
+              "fieldValue": "={{ $fromAI('tipo','Tipo da movimentação: receita ou despesa') }}"
+            },
+            {
+              "fieldId": "valor",
+              "fieldValue": "={{ $fromAI('valor','Valor positivo em reais, número com ponto decimal. Ex: 45.90','number') }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria. Despesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Outros. Receitas: Salário, Freelance, Vendas, Outros') }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $fromAI('descricao','Descrição curta da movimentação') }}"
+            },
+            {
+              "fieldId": "data",
+              "fieldValue": "={{ $fromAI('data','Data AAAA-MM-DD da movimentação; vazio se for hoje','string','') || $('Normalizar mensagem').first().json.hoje }}"
+            },
+            {
+              "fieldId": "fonte",
+              "fieldValue": "whatsapp"
+            },
+            {
+              "fieldId": "idempotency_key",
+              "fieldValue": "={{ 'wa:' + $('Normalizar mensagem').first().json.message_id + ':' + (() => { const t=$fromAI('tipo','Tipo da movimentação: receita ou despesa'), v=$fromAI('valor','Valor positivo em reais, número com ponto decimal. Ex: 45.90','number'), c=$fromAI('categoria','Categoria. Despesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Outros. Receitas: Salário, Freelance, Vendas, Outros'), d=$fromAI('descricao','Descrição curta da movimentação'); const s=[t,v].join('|');let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const ch=s.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return (4294967296*(2097151&h2)+(h1>>>0)).toString(16); })() }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Registra uma receita ou despesa em reais (BRL) do cliente. Retorna a linha criada quando salvou. Erro de chave duplicada (idempotency_key) significa que já estava registrado. O telefone é automático."
+      },
+      "id": "c2364085-398d-477c-a59d-df56ce9d8ec2",
+      "name": "registrar_movimentacao",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2030,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "movimentacoes",
+        "__d": "Lista movimentações do cliente, mais recentes primeiro. Com mês (AAAA-MM) traz o mês inteiro (até 200); sem mês, as 30 mais recentes.",
+        "returnAll": false,
+        "limit": "={{ $fromAI('mes','Mês AAAA-MM; vazio para as 30 mais recentes','string','') ? 200 : 30 }}",
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + ($fromAI('mes','Mês AAAA-MM; vazio para as 30 mais recentes','string','') ? '&mes=eq.' + encodeURIComponent($fromAI('mes','Mês AAAA-MM; vazio para as 30 mais recentes','string','')) : '') + '&order=data.desc,created_at.desc' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista movimentações do cliente, mais recentes primeiro. Com mês (AAAA-MM) traz o mês inteiro (até 200); sem mês, as 30 mais recentes."
+      },
+      "id": "3d7f1932-e571-4eb4-93ee-f5fba171c56f",
+      "name": "consultar_movimentacoes",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2160,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "vw_saldo",
+        "__d": "Saldo geral do cliente (receitas, despesas e saldo de todos os tempos, em reais).",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Saldo geral do cliente (receitas, despesas e saldo de todos os tempos, em reais)."
+      },
+      "id": "f8acb09f-8a7a-46a6-9c61-87e6f982e803",
+      "name": "saldo_total",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2290,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "vw_resumo_mensal",
+        "__d": "Resumo de um mês: receitas, despesas e total por categoria, em reais.",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&mes=eq.' + encodeURIComponent($fromAI('mes','Mês AAAA-MM; use o mês atual se o cliente não disser','string','') || $('Normalizar mensagem').first().json.mes) }}",
+        "descriptionType": "manual",
+        "toolDescription": "Resumo de um mês: receitas, despesas e total por categoria, em reais."
+      },
+      "id": "2800fbf6-db9b-4e6d-8084-c977eca69143",
+      "name": "resumo_mensal",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2420,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "orcamentos",
+        "__d": "Lista os orçamentos (limite mensal por categoria) do cliente. Use antes de salvar ou atualizar e para comparar com o gasto.",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista os orçamentos (limite mensal por categoria) do cliente. Use antes de salvar ou atualizar e para comparar com o gasto."
+      },
+      "id": "2d8cbbf2-a773-410a-ad3b-8e633fcc1fee",
+      "name": "consultar_orcamentos",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2550,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "orcamentos",
+        "__d": "Cria um orçamento novo (limite mensal em reais, válido para todos os meses) para uma categoria que ainda não tem orçamento. Se já existir, use atualizar_orcamento.",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria de despesa do orçamento. Ex: Alimentação') }}"
+            },
+            {
+              "fieldId": "limite_mensal",
+              "fieldValue": "={{ $fromAI('limite_mensal','Limite mensal em reais, número com ponto decimal. Ex: 800.00','number') }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cria um orçamento novo (limite mensal em reais, válido para todos os meses) para uma categoria que ainda não tem orçamento. Se já existir, use atualizar_orcamento."
+      },
+      "id": "5846c0f9-31d8-418d-8c55-37a6e088bad4",
+      "name": "salvar_orcamento",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2680,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "orcamentos",
+        "__d": "Atualiza o limite mensal em reais de um orçamento que já existe para a categoria (confirme com consultar_orcamentos).",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&mes=is.null&categoria=eq.' + encodeURIComponent($fromAI('categoria','Categoria exatamente como aparece em consultar_orcamentos')) }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "limite_mensal",
+              "fieldValue": "={{ $fromAI('limite_mensal','Novo limite mensal em reais, número com ponto decimal. Ex: 900.00','number') }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Atualiza o limite mensal em reais de um orçamento que já existe para a categoria (confirme com consultar_orcamentos)."
+      },
+      "id": "ae69726d-7a09-419a-9c4c-cf29ed7abaf5",
+      "name": "atualizar_orcamento",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2810,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "contas_a_pagar",
+        "__d": "Cadastra uma conta a pagar (pendente) em reais com vencimento.",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $fromAI('descricao','Nome da conta. Ex: Conta de luz') }}"
+            },
+            {
+              "fieldId": "valor",
+              "fieldValue": "={{ $fromAI('valor','Valor em reais, número com ponto decimal. Ex: 189.90','number') }}"
+            },
+            {
+              "fieldId": "vencimento",
+              "fieldValue": "={{ $fromAI('vencimento','Data de vencimento no formato AAAA-MM-DD') }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria da conta. Ex: Contas, Moradia, Educação') }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "pendente"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cadastra uma conta a pagar (pendente) em reais com vencimento."
+      },
+      "id": "c631c5d8-d611-4b99-b11d-67e04247676e",
+      "name": "cadastrar_conta_a_pagar",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "contas_a_pagar",
+        "__d": "Lista as contas a pagar pendentes do cliente, por vencimento. Cada conta traz o id usado em marcar_conta_como_paga.",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&status=eq.pendente&order=vencimento.asc' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista as contas a pagar pendentes do cliente, por vencimento. Cada conta traz o id usado em marcar_conta_como_paga."
+      },
+      "id": "88e8e6ee-9ccf-4184-83e6-450701d467d0",
+      "name": "consultar_contas_a_pagar",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3070,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "contas_a_pagar",
+        "__d": "Marca uma conta como paga (o banco cria a despesa e preenche a data de pagamento). Use o id de consultar_contas_a_pagar.",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + encodeURIComponent($fromAI('id_conta','Campo id (uuid) da conta, obtido em consultar_contas_a_pagar')) + '&' + 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "paga"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Marca uma conta como paga (o banco cria a despesa e preenche a data de pagamento). Use o id de consultar_contas_a_pagar."
+      },
+      "id": "a461ac9e-4a79-44dd-9dbc-efddc3ca839a",
+      "name": "marcar_conta_como_paga",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3200,
+        820
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "e7d9a6a8-90d2-4ae0-b6e0-31c6d38dae9a",
+      "name": "Todo dia às 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "bd779952-489f-48b2-aa12-43139b61b3f3",
+              "name": "phone_number_id",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "241a189f-93e1-4076-92ba-1a410e83ed8e",
+              "name": "template_lembrete",
+              "value": "lembrete_conta_a_pagar|pt_BR",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e0f10672-3f2a-49de-bca3-248230523dc2",
+      "name": "Config lembrete",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        1200
+      ],
+      "notes": "Preencha phone_number_id (ID do número no WhatsApp Manager/Meta).",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "contas_a_pagar",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'status=eq.pendente&or=(and(vencimento.gte.' + DateTime.now().setZone('America/Sao_Paulo').toFormat('yyyy-MM-dd') + ',vencimento.lte.' + DateTime.now().setZone('America/Sao_Paulo').plus({days:3}).toFormat('yyyy-MM-dd') + ',or(lembrete_enviado_em.is.null,lembrete_enviado_em.lt.' + DateTime.now().setZone('America/Sao_Paulo').toFormat('yyyy-MM-dd') + 'T00:00:00-03:00)),and(vencimento.lt.' + DateTime.now().setZone('America/Sao_Paulo').toFormat('yyyy-MM-dd') + ',lembrete_enviado_em.is.null))&order=vencimento.asc' }}"
+      },
+      "id": "7cc673d6-2014-4718-b459-8bfdd7c6c70c",
+      "name": "Contas a lembrar",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        440,
+        1200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "assinaturas",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "status=in.(Ativo,Cancelado)"
+      },
+      "id": "5a76314b-787c-4b9a-b467-f10e9ccbc226",
+      "name": "Assinaturas ativas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        660,
+        1200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "perfis",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "select=telefone,nome"
+      },
+      "id": "ab68f086-b7eb-498a-a79e-621588c585fe",
+      "name": "Perfis",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        880,
+        1200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Uma saída por conta de usuário com assinatura ativa (mesma regra do RPC antigo: vencimento nulo ou futuro).\nconst canon = (t) => { let d = String(t || '').replace(/\\D/g, '').replace(/^0+/, ''); if (d.length === 10 || d.length === 11) d = '55' + d; if (d.length === 12 && d.startsWith('55') && /[6-9]/.test(d[4])) d = d.slice(0, 4) + '9' + d.slice(4); return d; };\nconst agora = new Date();\nconst ativos = new Set($('Assinaturas ativas').all().map(i => i.json).filter(r => (r.status === 'Ativo' && (!r.data_vencimento || new Date(r.data_vencimento) > agora)) || (r.status === 'Cancelado' && r.data_vencimento && new Date(r.data_vencimento) > agora)).map(r => canon(r.telefone)));\nconst nomes = {};\nfor (const p of $input.all()) if (p.json.telefone) nomes[canon(p.json.telefone)] = p.json.nome;\nconst hoje = DateTime.now().setZone('America/Sao_Paulo').startOf('day');\nconst brl = (n) => Number(n).toFixed(2).replace('.', ',').replace(/\\B(?=(\\d{3})+,)/g, '.');\nconst out = [];\nfor (const it of $('Contas a lembrar').all()) {\n  const c = it.json;\n  if (!c.id || !ativos.has(canon(c.telefone))) continue;\n  const dias = Math.round(DateTime.fromISO(String(c.vencimento).slice(0, 10), { zone: 'America/Sao_Paulo' }).startOf('day').diff(hoje, 'days').days);\n  const quando = dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : DateTime.fromISO(String(c.vencimento).slice(0, 10)).toFormat('dd/MM/yyyy');\n  const nome = String(nomes[canon(c.telefone)] || '').trim().split(/\\s+/)[0] || 'cliente';\n  out.push({ json: { telefone: c.telefone, conta_id: c.id, p1: nome, p2: c.descricao, p3: brl(c.valor), p4: quando, tipo_lembrete: dias < 0 ? \"conta_vencida\" : \"vencimento_proximo\" } });\n}\nreturn out;"
+      },
+      "id": "4ef5ba08-9682-4bb0-87ed-a37ea7e85cb1",
+      "name": "Montar lembretes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendTemplate",
+        "phoneNumberId": "={{ $('Config lembrete').first().json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $json.telefone }}",
+        "template": "={{ $('Config lembrete').first().json.template_lembrete }}",
+        "components": {
+          "component": [
+            {
+              "type": "body",
+              "bodyParameters": {
+                "parameter": [
+                  {
+                    "type": "text",
+                    "text": "={{ $json.p1 }}"
+                  },
+                  {
+                    "type": "text",
+                    "text": "={{ $json.p2 }}"
+                  },
+                  {
+                    "type": "text",
+                    "text": "={{ $json.p3 }}"
+                  },
+                  {
+                    "type": "text",
+                    "text": "={{ $json.p4 }}"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "id": "bcf32617-468b-40d1-94ce-cb8efba4fafb",
+      "name": "Enviar lembrete (template)",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1320,
+        1200
+      ],
+      "webhookId": "3e693340-cbf3-4e01-a9dd-78e31910f068",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "contas_a_pagar",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + $('Montar lembretes').item.json.conta_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "lembrete_enviado_em",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "id": "c9ba29de-6630-4794-911e-1dafe50fe4a2",
+      "name": "Marcar lembrete enviado",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1540,
+        1200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "logs_lembrete",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Montar lembretes').item.json.telefone }}"
+            },
+            {
+              "fieldId": "conta_id",
+              "fieldValue": "={{ $('Montar lembretes').item.json.conta_id }}"
+            },
+            {
+              "fieldId": "tipo_lembrete",
+              "fieldValue": "={{ $(\"Montar lembretes\").item.json.tipo_lembrete }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "enviado"
+            }
+          ]
+        }
+      },
+      "id": "08306dcc-9086-4ae0-8c90-3161b77426b5",
+      "name": "Registrar log do lembrete",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1760,
+        1200
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "registrar_movimentacao": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_movimentacoes": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "saldo_total": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resumo_mensal": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_orcamentos": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "salvar_orcamento": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "atualizar_orcamento": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cadastrar_conta_a_pagar": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_contas_a_pagar": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "marcar_conta_como_paga": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensagem no WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "É mensagem de usuário?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É mensagem de usuário?": {
+      "main": [
+        [
+          {
+            "node": "Normalizar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Buscar assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar assinatura": {
+      "main": [
+        [
+          {
+            "node": "Avaliar assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avaliar assinatura": {
+      "main": [
+        [
+          {
+            "node": "Assinatura ativa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assinatura ativa?": {
+      "main": [
+        [
+          {
+            "node": "Tipo da mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar convite de assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo da mensagem": {
+      "main": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Obter URL do áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder tipo não suportado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Obter URL do áudio": {
+      "main": [
+        [
+          {
+            "node": "Baixar áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar áudio": {
+      "main": [
+        [
+          {
+            "node": "Transcrever áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrever áudio": {
+      "main": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assistente FINALZAP": {
+      "main": [
+        [
+          {
+            "node": "Responder no WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo OpenAI": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória da conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Todo dia às 8h": {
+      "main": [
+        [
+          {
+            "node": "Config lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config lembrete": {
+      "main": [
+        [
+          {
+            "node": "Contas a lembrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contas a lembrar": {
+      "main": [
+        [
+          {
+            "node": "Assinaturas ativas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assinaturas ativas": {
+      "main": [
+        [
+          {
+            "node": "Perfis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfis": {
+      "main": [
+        [
+          {
+            "node": "Montar lembretes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar lembretes": {
+      "main": [
+        [
+          {
+            "node": "Enviar lembrete (template)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar lembrete (template)": {
+      "main": [
+        [
+          {
+            "node": "Marcar lembrete enviado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar lembrete enviado": {
+      "main": [
+        [
+          {
+            "node": "Registrar log do lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "binaryMode": "separate"
+  }
+}

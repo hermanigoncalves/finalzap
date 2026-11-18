@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-green-900: #0B3D2E;
+  --color-brand-green-600: #10A36A;
+  --color-brand-gold-500: #D4A417;
+  --color-brand-danger: #C84545;
+  --color-surface-light: #F7F9F6;
+  --color-text-dark: #0F1B17;
+
+  --color-brand-primary: #0B3D2E;
+  --color-brand-primary-hover: #082F24;
+  --color-brand-secondary: #D4A417;
+  --color-brand-success: #10A36A;
+  --color-brand-warning: #D4A417;
+  --color-surface: #F7F9F6;
+  --color-surface-card: #FFFFFF;
+  --color-surface-dark: #081F18;
+  --color-surface-card-dark: #0B3D2E;
+
+  --color-green-50: #EFF7F2;
+  --color-green-100: #DFEEE5;
+  --color-green-200: #BBD9C7;
+  --color-green-300: #91C2A5;
+  --color-green-400: #4FB582;
+  --color-green-500: #10A36A;
+  --color-green-600: #0B3D2E;
+  --color-green-700: #082F24;
+  --color-green-800: #07261D;
+  --color-green-900: #061D17;
+
+  --color-slate-50: #F7F9F6;
+  --color-slate-100: #EAF0EC;
+  --color-slate-200: #D7E1DB;
+  --color-slate-300: #B8C8C0;
+  --color-slate-400: #91A59B;
+  --color-slate-500: #6D857A;
+  --color-slate-600: #506A5F;
+  --color-slate-700: #345548;
+  --color-slate-800: #164C3D;
+  --color-slate-900: #0B3D2E;
+  --color-slate-950: #0F1B17;
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-heading: "Montserrat", "Inter", system-ui, sans-serif;
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+}
+
+@layer base {
+  :root {
+    --bg-color: var(--color-surface);
+    --text-color: #0F1B17;
+    --card-bg: var(--color-surface-card);
+    --border-color: #D7E1DB;
+  }
+
+  .dark {
+    --bg-color: var(--color-surface-dark);
+    --text-color: #F7F9F6;
+    --card-bg: var(--color-surface-card-dark);
+    --border-color: #275749;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+  }
+
+  :focus-visible {
+    outline: 2px solid #D4A417;
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

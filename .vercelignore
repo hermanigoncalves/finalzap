@@ -1,0 +1,13 @@
+# Não sobe para a Vercel: só api/, lib/ e frontend/ são usados no build e nas funções.
+.agent
+.agents
+.superpowers
+.claude
+.codex
+bot-server
+tests
+docs
+n8n
+supabase
+*.md
+!README.md
