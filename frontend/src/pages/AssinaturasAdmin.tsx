@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useFinance } from '../hooks/useFinance';
-import type { TipoAssinatura, CustoFixo, UsoServico, ServicoUso } from '../lib/financeService';
+import type { TipoAssinatura, CustoFixo, UsoServico } from '../lib/financeService';
 import { listar_todas_assinaturas, listar_todo_uso_servico, listar_todos_custos_fixos } from '../lib/financeService';
 import { Plus, Edit, Trash2, Save, Check, Mail } from 'lucide-react';
 import { traduzirRespostaReenvio } from '../lib/reenvio';
@@ -27,7 +27,6 @@ export default function Administrador() {
     cadastrar_custo_fixo,
     atualizar_custo_fixo,
     remover_custo_fixo,
-    registrar_uso_servico,
     formatar_moeda_brl,
   } = useFinance();
 
@@ -51,13 +50,6 @@ export default function Administrador() {
   const [openaiCusto, setOpenaiCusto] = useState<{ total: number; moeda: string } | null>(null);
   const [openaiErro, setOpenaiErro] = useState<string | null>(null);
   const [erroLocal, setErroLocal] = useState<string | null>(null);
-  const [usoForm, setUsoForm] = useState({
-    servico: 'openai' as ServicoUso,
-    modelo: '',
-    tokens_entrada: '',
-    tokens_saida: '',
-    custo_brl: '',
-  });
   const formVazio = {
     telefone: '',
     nome: '',
@@ -345,28 +337,6 @@ export default function Administrador() {
   };
 
   /* -------------------- Tokens / Uso -------------------- */
-  const handleUsoSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const num = (v: string) => (v ? Number(v.replace(',', '.')) : 0);
-    const custo = num(usoForm.custo_brl);
-    if (!isFinite(custo) || custo < 0) {
-      alert('Custo inválido.');
-      return;
-    }
-    const ok = await executar(() =>
-      registrar_uso_servico({
-        servico: usoForm.servico,
-        modelo: usoForm.modelo || undefined,
-        tokens_entrada: num(usoForm.tokens_entrada),
-        tokens_saida: num(usoForm.tokens_saida),
-        custo_brl: custo,
-      })
-    );
-    if (!ok) return;
-    setUsoForm({ servico: 'openai', modelo: '', tokens_entrada: '', tokens_saida: '', custo_brl: '' });
-    await carregar();
-  };
-
   const mesAtualUso = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
   const resumoUso = usos
     .filter((u) => u.data.slice(0, 7) === mesAtualUso)
@@ -750,56 +720,6 @@ export default function Administrador() {
               <Button type="button" variant="outline" size="sm" onClick={() => void carregarMeta()} disabled={metaCarregando}>
                 Atualizar da Meta
               </Button>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Registrar uso</CardTitle></CardHeader>
-            <CardContent>
-              <form onSubmit={handleUsoSave} className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
-                <select aria-label="Serviço" value={usoForm.servico} onChange={(e) => setUsoForm({ ...usoForm, servico: e.target.value as ServicoUso })} className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none">
-                  <option value="openai">OpenAI</option>
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="pluggy">Pluggy</option>
-                  <option value="outro">Outro</option>
-                </select>
-                <input aria-label="Modelo" placeholder="Modelo" value={usoForm.modelo} onChange={(e) => setUsoForm({ ...usoForm, modelo: e.target.value })} className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none" />
-                <input aria-label="Tokens de entrada" type="number" min="0" placeholder="Tokens entrada" value={usoForm.tokens_entrada} onChange={(e) => setUsoForm({ ...usoForm, tokens_entrada: e.target.value })} className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none" />
-                <input aria-label="Tokens de saída" type="number" min="0" placeholder="Tokens saída" value={usoForm.tokens_saida} onChange={(e) => setUsoForm({ ...usoForm, tokens_saida: e.target.value })} className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none" />
-                <input aria-label="Custo em reais" type="number" min="0" step="0.01" placeholder="Custo (R$)" value={usoForm.custo_brl} onChange={(e) => setUsoForm({ ...usoForm, custo_brl: e.target.value })} className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none" />
-                <Button type="submit" className="col-span-2 sm:col-span-5"><Plus size={18} className="mr-2" />Registrar</Button>
-              </form>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800">
-                    <tr>
-                      <th className="px-6 py-4 font-medium">Data</th>
-                      <th className="px-6 py-4 font-medium">Serviço</th>
-                      <th className="px-6 py-4 font-medium">Modelo</th>
-                      <th className="px-6 py-4 font-medium text-right">Tokens</th>
-                      <th className="px-6 py-4 font-medium text-right">Custo</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {usos.length === 0 ? (
-                      <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">Nenhum uso registrado.</td></tr>
-                    ) : (
-                      usos.map((u) => (
-                        <tr key={u.id}>
-                          <td className="px-6 py-3">{u.data}</td>
-                          <td className="px-6 py-3 capitalize">{u.servico}</td>
-                          <td className="px-6 py-3">{u.modelo || '-'}</td>
-                          <td className="px-6 py-3 text-right">{(Number(u.tokens_entrada || 0) + Number(u.tokens_saida || 0)).toLocaleString('pt-BR')}</td>
-                          <td className="px-6 py-3 text-right">{formatar_moeda_brl(Number(u.custo_brl || 0))}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
             </CardContent>
           </Card>
         </>
