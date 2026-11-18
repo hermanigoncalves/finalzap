@@ -33,3 +33,10 @@ test('noPeriodo: início e fim inclusivos, aceita timestamp, rejeita vazio; peri
   assert.ok(!noPeriodo('2026-10-31', p) && !noPeriodo('2026-12-01', p) && !noPeriodo(null, p));
   assert.ok(periodoValido(p) && !periodoValido({ inicio: '2026-11-10', fim: '2026-11-01' }) && !periodoValido({ inicio: '', fim: '2026-11-01' }));
 });
+
+test('vencimentosMensais: mesmo dia, mês curto usa o último dia, vira o ano', async () => {
+  const { vencimentosMensais } = await import('../frontend/src/lib/datas.ts');
+  assert.deepEqual(vencimentosMensais('2026-11-15', 3), ['2026-11-15', '2026-12-15', '2027-01-15']);
+  assert.deepEqual(vencimentosMensais('2026-01-31', 4), ['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30']);
+  assert.deepEqual(vencimentosMensais('2028-01-31', 2), ['2028-01-31', '2028-02-29']);
+});

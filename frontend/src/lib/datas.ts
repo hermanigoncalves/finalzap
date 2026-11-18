@@ -22,3 +22,16 @@ export function somarMeses(mes: string, meses: number): string {
   const t = a * 12 + (m - 1) + meses;
   return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, '0')}`;
 }
+
+/** `n` vencimentos mensais a partir de `inicio` (YYYY-MM-DD), no mesmo dia; mês curto usa o último dia (31/01 → 28/02 → 31/03). */
+export function vencimentosMensais(inicio: string, n: number): string[] {
+  const [a, m, d] = inicio.split('-').map(Number);
+  const p = (x: number) => String(x).padStart(2, '0');
+  return Array.from({ length: n }, (_, i) => {
+    const t = m - 1 + i;
+    const ano = a + Math.floor(t / 12);
+    const mes = t % 12;
+    const ultimo = new Date(Date.UTC(ano, mes + 1, 0)).getUTCDate();
+    return `${ano}-${p(mes + 1)}-${p(Math.min(d, ultimo))}`;
+  });
+}

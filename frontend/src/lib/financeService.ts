@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { hojeISO, mesAtual, somarDias } from './datas';
+import { hojeISO, mesAtual, somarDias, vencimentosMensais } from './datas';
 import { chamarMarcarContaPaga, type ResultadoContaPaga } from './contaPaga';
 
 /* ------------------------------------------------------------------ */
@@ -873,6 +873,7 @@ export interface CadastrarCustoFixoInput {
   valor: number;
   categoria: TipoCustoFixo;
   vencimento: string;
+  status?: 'pendente' | 'pago';
   telefone?: string;
 }
 
@@ -917,13 +918,38 @@ export async function cadastrar_custo_fixo(
       valor: input.valor,
       categoria: input.categoria,
       vencimento: input.vencimento,
-      status: 'pendente',
+      status: input.status ?? 'pendente',
     })
     .select()
     .single();
 
   if (error) throw error;
   return data as CustoFixo;
+}
+
+/** Custo que repete todo mês: cria `meses` linhas (uma por vencimento) num único insert, atômico. A 1ª usa o status informado; as demais entram pendentes. */
+export async function cadastrar_custo_fixo_recorrente(
+  input: CadastrarCustoFixoInput,
+  meses: number
+): Promise<CustoFixo[]> {
+  const telefone = input.telefone || (await resolverTelefoneUsuario());
+  if (!telefone) throw new Error('Usuário não identificado.');
+  validarValor(input.valor);
+  if (!input.descricao?.trim()) throw new Error('Informe a descrição.');
+  if (!input.vencimento) throw new Error('Informe o vencimento.');
+  if (!Number.isInteger(meses) || meses < 2 || meses > 60) throw new Error('Informe de 2 a 60 meses.');
+
+  const linhas = vencimentosMensais(input.vencimento, meses).map((vencimento, i) => ({
+    telefone,
+    descricao: input.descricao.trim(),
+    valor: input.valor,
+    categoria: input.categoria,
+    vencimento,
+    status: i === 0 ? input.status ?? 'pendente' : 'pendente',
+  }));
+  const { data, error } = await supabase.from('custos_fixos').insert(linhas).select();
+  if (error) throw error;
+  return (data || []) as CustoFixo[];
 }
 
 export async function atualizar_custo_fixo(

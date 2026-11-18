@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useFinance } from '../hooks/useFinance';
 import type { TipoAssinatura, CustoFixo, UsoServico } from '../lib/financeService';
-import { listar_todas_assinaturas, listar_todo_uso_servico, listar_todos_custos_fixos } from '../lib/financeService';
+import { cadastrar_custo_fixo_recorrente, listar_todas_assinaturas, listar_todo_uso_servico, listar_todos_custos_fixos } from '../lib/financeService';
 import { Plus, Edit, Trash2, Save, Check, Mail } from 'lucide-react';
 import { traduzirRespostaReenvio } from '../lib/reenvio';
 import AdminDashboard from './AdminDashboard';
@@ -76,6 +76,8 @@ export default function Administrador() {
     categoria: 'servidor' as CustoFixo['categoria'],
     vencimento: '',
     status: 'pendente' as CustoFixo['status'],
+    recorrente: false,
+    meses: '12',
   });
 
   const carregar = async () => {
@@ -297,6 +299,12 @@ export default function Administrador() {
       return;
     }
 
+    const meses = Number(custoForm.meses);
+    if (!custoEditId && custoForm.recorrente && (!Number.isInteger(meses) || meses < 2 || meses > 60)) {
+      alert('Informe de 2 a 60 meses.');
+      return;
+    }
+
     const ok = await executar(() =>
       custoEditId
         ? atualizar_custo_fixo(custoEditId, {
@@ -306,12 +314,21 @@ export default function Administrador() {
             vencimento: custoForm.vencimento,
             status: custoForm.status,
           })
-        : cadastrar_custo_fixo({
-            descricao: custoForm.descricao,
-            valor,
-            categoria: custoForm.categoria,
-            vencimento: custoForm.vencimento,
-          })
+        : custoForm.recorrente
+          ? cadastrar_custo_fixo_recorrente({
+              descricao: custoForm.descricao,
+              valor,
+              categoria: custoForm.categoria,
+              vencimento: custoForm.vencimento,
+              status: custoForm.status === 'cancelado' ? 'pendente' : custoForm.status,
+            }, meses)
+          : cadastrar_custo_fixo({
+              descricao: custoForm.descricao,
+              valor,
+              categoria: custoForm.categoria,
+              vencimento: custoForm.vencimento,
+              status: custoForm.status === 'cancelado' ? 'pendente' : custoForm.status,
+            })
     );
     if (!ok) return;
 
@@ -323,6 +340,8 @@ export default function Administrador() {
       categoria: 'servidor',
       vencimento: '',
       status: 'pendente',
+      recorrente: false,
+      meses: '12',
     });
     await carregar();
   };
@@ -335,6 +354,8 @@ export default function Administrador() {
       categoria: c.categoria,
       vencimento: c.vencimento,
       status: c.status,
+      recorrente: false,
+      meses: '12',
     });
     setCustoModalOpen(true);
   };
@@ -619,6 +640,33 @@ export default function Administrador() {
               </select>
             </div>
           </div>
+          {!custoEditId && (
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={custoForm.recorrente}
+                  onChange={(e) => setCustoForm({ ...custoForm, recorrente: e.target.checked })}
+                  className="w-4 h-4 accent-green-600"
+                />
+                Custo recorrente (repete todo mês)
+              </label>
+              {custoForm.recorrente && (
+                <div>
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1 block">Repetir por quantos meses (inclui o 1º)</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={60}
+                    value={custoForm.meses}
+                    onChange={(e) => setCustoForm({ ...custoForm, meses: e.target.value })}
+                    className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                  />
+                  <p className="text-xs text-slate-400 mt-1">Cada mês vira um lançamento no mesmo dia do vencimento; só o 1º usa o status escolhido, os demais entram pendentes.</p>
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-6">
             <Button type="button" variant="outline" className="w-full" onClick={() => setCustoModalOpen(false)}>
               Cancelar
