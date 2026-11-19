@@ -6,6 +6,8 @@ import AdminGuard from './components/AdminGuard';
 import { resolverPerfilUsuario, type PerfilUsuario } from './lib/financeService';
 import LoginPage from './pages/Login';
 import VincularWhatsApp from './components/VincularWhatsApp';
+import EscolherModo from './components/EscolherModo';
+import { lerModo, salvarModo } from './lib/modoAcesso';
 
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Transactions      = lazy(() => import('./pages/Transactions'));
@@ -47,7 +49,7 @@ const MensagemConta = ({ titulo, texto }: { titulo: string; texto: string }) => 
 
 // Inner component so hooks run inside BrowserRouter
 function AuthGate() {
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, signOut } = useAuth();
 
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -67,10 +69,13 @@ function AuthGate() {
   }, [userId, recarregarPerfil]);
   const isAdmin = perfil ? perfil.role === 'admin' : null;
 
-  // Administrador só usa a área de administração.
+  // Admin escolhe no login entrar como administrador ou como usuário.
+  const [modo, setModo] = useState(lerModo);
+
+  // No modo administrador só vale a área de administração.
   useEffect(() => {
-    if (isAdmin && pathname !== '/admin') navigate('/admin', { replace: true });
-  }, [isAdmin, pathname, navigate]);
+    if (isAdmin && modo === 'admin' && pathname !== '/admin') navigate('/admin', { replace: true });
+  }, [isAdmin, modo, pathname, navigate]);
 
   // Still checking if user is logged in
   if (authLoading) return <Spinner />;
@@ -85,6 +90,16 @@ function AuthGate() {
   if (perfil === null) {
     // Autenticado sem perfil (ex.: compra sem telefone): vincula o WhatsApp por código.
     return <VincularWhatsApp aoVincular={recarregarPerfil} />;
+  }
+
+  if (isAdmin && !modo) {
+    return (
+      <EscolherModo
+        nome={perfil?.nome}
+        aoEscolher={(m) => { salvarModo(m); setModo(m); }}
+        aoSair={signOut}
+      />
+    );
   }
 
   return (

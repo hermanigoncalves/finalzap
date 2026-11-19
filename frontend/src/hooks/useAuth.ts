@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { limparCachePerfil } from '../lib/financeService';
+import { limparModo } from '../lib/modoAcesso';
 
 const STORE_KEY = 'finance-store';
 const OWNER_KEY = 'finance-store-owner';
@@ -32,6 +33,7 @@ function garantirDonoDoCache(userId: string | null): boolean {
 
 function limparCache() {
   limparCachePerfil();
+  limparModo();
   try {
     localStorage.removeItem(STORE_KEY);
     localStorage.removeItem(OWNER_KEY);

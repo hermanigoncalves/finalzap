@@ -10,6 +10,8 @@ export default function Login() {
   const [error, setError]           = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading]       = useState(false);
+  // E-mail/senha fica recolhido: o caminho principal é o Google.
+  const [mostrarEmail, setMostrarEmail] = useState(false);
 
   const translateError = (msg: string) => {
     if (msg.includes('Invalid login credentials')) {
@@ -92,6 +94,16 @@ export default function Login() {
             Continuar com Google
           </button>
 
+          {!mostrarEmail && (
+            <button
+              type="button" onClick={() => setMostrarEmail(true)}
+              className="w-full mt-4 text-sm text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              Entrar com e-mail e senha
+            </button>
+          )}
+
+          {mostrarEmail && (<>
           <div className="flex items-center gap-3 my-5" aria-hidden="true">
             <span className="h-px flex-1 bg-white/10" />
             <span className="text-xs text-slate-500">ou use e-mail e senha</span>
@@ -144,6 +156,7 @@ export default function Login() {
               {mode === 'signin' ? 'Criar conta' : 'Entrar'}
             </button>
           </p>
+          </>)}
         </div>
 
         {mode === 'signup' && (

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { ehUsuarioAdmin } from '../lib/financeService';
+import { lerModo } from '../lib/modoAcesso';
 
 /**
  * AdminGuard: protege rotas que só devem ser acessadas por usuários com role 'admin'.
@@ -38,7 +39,7 @@ export default function AdminGuard({ children }: { children: React.ReactNode }) 
     );
   }
 
-  if (!isAdmin) {
+  if (!isAdmin || lerModo() !== 'admin') {
     return <Navigate to="/dashboard" replace />;
   }
 

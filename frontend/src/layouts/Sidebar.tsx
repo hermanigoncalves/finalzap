@@ -11,6 +11,7 @@ import {
   Bot,
   CreditCard,
   LogOut,
+  Repeat,
 } from 'lucide-react';
 import { cn } from '../components/ui';
 import { useStore } from '../store/useStore';
@@ -18,6 +19,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useState, useEffect } from 'react';
 import Brand from '../components/Brand';
 import { ehUsuarioAdmin } from '../lib/financeService';
+import { lerModo, limparModo } from '../lib/modoAcesso';
 
 // Menu do administrador: as abas do painel viram itens do menu lateral.
 const navItemsAdmin = [
@@ -51,7 +53,8 @@ export default function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean; setIsO
   }, []);
 
   // Administrador vê só a área de administração; cliente nunca vê o item Administrador.
-  const navItems = isAdmin === true
+  const modoAdmin = isAdmin === true && lerModo() === 'admin';
+  const navItems = modoAdmin
     ? navItemsAdmin
     : navItemsBase;
   const fullName = [userSettings.firstName, userSettings.lastName].filter(Boolean).join(' ') || 'Usuário';
@@ -105,7 +108,7 @@ export default function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean; setIsO
         </div>
 
         <div className="p-4 mt-auto">
-          {isAdmin !== true && (
+          {!modoAdmin && (
           <NavLink
             to="/settings"
             className={({ isActive }) =>
@@ -120,6 +123,17 @@ export default function Sidebar({ isOpen, setIsOpen }: { isOpen: boolean; setIsO
             <Settings size={19} />
             Configurações
           </NavLink>
+          )}
+
+          {isAdmin === true && (
+            <button
+              type="button"
+              onClick={() => { limparModo(); window.location.replace('/'); }}
+              className="mt-1 w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium text-white/75 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              <Repeat size={19} />
+              Trocar modo ({modoAdmin ? 'admin' : 'usuário'})
+            </button>
           )}
 
           <button
