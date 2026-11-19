@@ -26,6 +26,7 @@ Arquitetura em produção:
    11. `supabase/migrations/20261118000007_handle_new_user_definer.sql`
    12. `supabase/migrations/20261119000001_endurece_funcoes_indices.sql`
    13. `supabase/migrations/20261119000002_chave_conta_do_dono.sql`
+   14. `supabase/migrations/20261119000003_vinculo_whatsapp.sql`
 
    As demais migrações em `supabase/migrations/` (2026-03) são do modelo antigo em inglês e **não** são necessárias.
 3. **Authentication > URL Configuration**:
@@ -55,6 +56,7 @@ Arquitetura em produção:
    |----------|:-----------:|----------|
    | `VITE_SUPABASE_URL` | sim | Painel. É lida **no build**: depois de alterar, faça redeploy |
    | `VITE_SUPABASE_ANON_KEY` | sim | Painel (chave anon pública) |
+   | `VITE_WHATSAPP_NUMERO` | não | Número do FinalZap no WhatsApp (só dígitos, com DDI). Habilita o botão "Abrir WhatsApp com o código" na tela de vínculo (também lida no build) |
    | `SUPABASE_URL` | sim | Funções `api/*` |
    | `SUPABASE_ANON_KEY` | sim | Valida o login do usuário nas funções |
    | `SUPABASE_SERVICE_ROLE_KEY` | sim | **Segredo.** Funções do servidor. Nunca em variável `VITE_*` |

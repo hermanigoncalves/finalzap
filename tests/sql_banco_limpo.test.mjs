@@ -22,6 +22,7 @@ const cadeia = [
   '20261118000007_handle_new_user_definer.sql',
   '20261119000001_endurece_funcoes_indices.sql',
   '20261119000002_chave_conta_do_dono.sql',
+  '20261119000003_vinculo_whatsapp.sql',
 ];
 
 let PGlite;
@@ -63,7 +64,7 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
       for (const f of cadeia) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
     }
     const t = await q(`select count(*)::int c from pg_tables where schemaname='public'`);
-    assert.equal(t[0].c, 12);
+    assert.equal(t[0].c, 13);
   });
 
   it('normaliza telefone BR', async () => {
@@ -252,8 +253,8 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     }
   });
   it('Login Google: religa perfil órfão só por e-mail verificado; não rouba perfil de outro nem aceita anon', async () => {
-    const G = '33333333-3333-3333-3333-333333333333'; // Google, e-mail verificado
-    const U = '44444444-4444-4444-4444-444444444444'; // e-mail não verificado
+    const G = 'a3a3a3a3-0000-4000-8000-000000000001'; // Google, e-mail verificado
+    const U = 'a4a4a4a4-0000-4000-8000-000000000002'; // e-mail não verificado
     const D = '55555555-5555-5555-5555-555555555555'; // dono de um perfil já ligado
     await db.exec('reset role');
     await db.exec(`
@@ -369,6 +370,47 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     assert.equal((await q(`select has_function_privilege('service_role','${fn}','execute') ok`))[0].ok, true);
     await db.exec('set role anon');
     await assert.rejects(() => rpc('seed_default_categories', A), /permission denied/);
+    await db.exec('reset role');
+  });
+  it('vínculo do WhatsApp por código: compra sem telefone', async () => {
+    await db.exec('reset role');
+    const U = 'b7b7b7b7-0000-4000-8000-000000000011';
+    const OUTRO = 'b8b8b8b8-0000-4000-8000-000000000012';
+    const TEL = '5511933330001';
+    await q(`insert into auth.users(id,email,email_confirmed_at) values ('${U}','cliente@vinculo.com',now()),('${OUTRO}','intruso@vinculo.com',now())`);
+    await q(`insert into public.assinaturas(email,nome,status,hotmart_assinante_codigo) values ('cliente@vinculo.com','Cliente','Ativo','VINC1')`);
+
+    // sem assinatura para o e-mail: não gera código
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${OUTRO}'`);
+    assert.equal((await rpc('gerar_codigo_vinculo')).success, false);
+    // anon não executa; authenticated não lê a tabela nem consome o código
+    await db.exec(`set request.jwt.claim.sub='${U}'`);
+    const g = await rpc('gerar_codigo_vinculo');
+    assert.equal(g.success, true);
+    assert.match(g.codigo, /^FZ-[0-9A-F]{8}$/);
+    assert.equal((await rpc('gerar_codigo_vinculo')).codigo, g.codigo); // reaproveita o ainda válido
+    await assert.rejects(() => q(`select * from public.vinculos_whatsapp`), /permission denied/);
+    await assert.rejects(() => rpc('vincular_whatsapp', TEL, g.codigo), /permission denied/);
+    await db.exec('reset role; set role anon');
+    await assert.rejects(() => rpc('gerar_codigo_vinculo'), /permission denied/);
+
+    // n8n (service_role): código errado falha; certo cria perfil e grava o telefone na assinatura
+    await db.exec('reset role; set role service_role');
+    assert.equal((await rpc('vincular_whatsapp', TEL, 'FZ-00000000')).success, false);
+    const ok = await rpc('vincular_whatsapp', TEL, g.codigo.toLowerCase());
+    assert.equal(ok.success, true);
+    const perfil = (await q(`select telefone, auth_id, role from public.perfis where auth_id='${U}'`))[0];
+    assert.equal(perfil.telefone, TEL);
+    assert.equal(perfil.role, 'user');
+    assert.equal((await q(`select telefone from public.assinaturas where hotmart_assinante_codigo='VINC1'`))[0].telefone, TEL);
+    // uso único
+    assert.equal((await rpc('vincular_whatsapp', '5511933330002', g.codigo)).success, false);
+    // código expirado
+    await db.exec('reset role');
+    await q(`insert into public.vinculos_whatsapp(codigo,auth_id,expira_em) values ('FZ-EXPIRADO',
+             '${OUTRO}', now() - interval '1 minute')`);
+    await db.exec('set role service_role');
+    assert.equal((await rpc('vincular_whatsapp', '5511933330003', 'FZ-EXPIRADO')).success, false);
     await db.exec('reset role');
   });
 });

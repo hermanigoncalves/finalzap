@@ -16,6 +16,7 @@ Modelo atual (por telefone, em português) = migrações `2026111*`. `schema.sql
 11. `20261118000007_handle_new_user_definer.sql`: restaura `SECURITY DEFINER` em `handle_new_user` (cadastro novo falhava com "Database error saving new user").
 12. `20261119000001_endurece_funcoes_indices.sql`: `search_path` e REVOKE nas funções DEFINER legadas (`seed_default_categories` etc., só se existirem), gatilho de reabrir conta filtra pelo dono, índices `uso_servico(data)` e `assinaturas(telefone)`.
 13. `20261119000002_chave_conta_do_dono.sql`: a chave `conta_<id>` em `movimentacoes` só pode ser usada pelo dono da conta (impede outro usuário de "sequestrar" a despesa de uma conta paga).
+14. `20261119000003_vinculo_whatsapp.sql`: vínculo do WhatsApp por código para compra sem telefone (tabela `vinculos_whatsapp`; RPC `gerar_codigo_vinculo` para o painel e `vincular_whatsapp` só para o n8n).
 
 Aplicação: SQL Editor, ou `supabase db push`. Teste num Postgres limpo: `npm i --no-save @electric-sql/pglite && node --test tests/sql_banco_limpo.test.mjs`.
 `seed.sql` não cria usuário/senha (use o Supabase Auth). Estado do banco real: `docs/banco-estado-atual.md`.

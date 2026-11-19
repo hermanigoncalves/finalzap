@@ -33,6 +33,7 @@ O nó Supabase só faz create/get/getAll/update/delete em tabelas e views (sem R
 8. Áudio com uma despesa; figurinha/imagem: resposta de tipo não suportado.
 9. Lembrete: conta pendente vencendo hoje/amanhã no seu telefone; execute o ramo "Todo dia às 8h" (envia template real: só para o seu número) e confira `lembrete_enviado_em` e `logs_lembrete`.
 10. Número com e sem o 9º dígito resolve o mesmo usuário.
+11. Vínculo por código (compra sem telefone): entre no painel com um e-mail que tenha assinatura mas nenhum perfil, copie o código `FZ-XXXXXXXX` da tela e envie-o do seu WhatsApp; o bot responde "WhatsApp vinculado" e a tela do painel avança sozinha. No nó **Vincular WhatsApp (RPC)** troque `SEU-PROJETO` pela URL do seu projeto Supabase.
 
 ## Limitações conhecidas
 - Os parâmetros dos nós Supabase (`filterType: string` com `filterString` PostgREST, `fieldsUi`) e `components` do envio de template devem ser validados na primeira execução; o n8n não os valida na importação.

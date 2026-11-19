@@ -1,10 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import DashboardLayout from './layouts/DashboardLayout';
 import { useAuth } from './hooks/useAuth';
 import AdminGuard from './components/AdminGuard';
 import { resolverPerfilUsuario, type PerfilUsuario } from './lib/financeService';
 import LoginPage from './pages/Login';
+import VincularWhatsApp from './components/VincularWhatsApp';
 
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Transactions      = lazy(() => import('./pages/Transactions'));
@@ -56,14 +57,14 @@ function AuthGate() {
   const userId = user?.id ?? null;
   const [perfil, setPerfil] = useState<PerfilUsuario | null | undefined>(undefined);
   const [erroPerfil, setErroPerfil] = useState(false);
-  useEffect(() => {
-    if (!userId) return;
-    let ativo = true;
+  const recarregarPerfil = useCallback(() => {
     resolverPerfilUsuario()
-      .then((p) => { if (ativo) { setPerfil(p); setErroPerfil(false); } })
-      .catch(() => { if (ativo) setErroPerfil(true); });
-    return () => { ativo = false; };
-  }, [userId]);
+      .then((p) => { setPerfil(p); setErroPerfil(false); })
+      .catch(() => setErroPerfil(true));
+  }, []);
+  useEffect(() => {
+    if (userId) recarregarPerfil();
+  }, [userId, recarregarPerfil]);
   const isAdmin = perfil ? perfil.role === 'admin' : null;
 
   // Administrador só usa a área de administração.
@@ -82,12 +83,8 @@ function AuthGate() {
   }
   if (perfil === undefined) return <Spinner />;
   if (perfil === null) {
-    return (
-      <MensagemConta
-        titulo="Sua conta ainda não está vinculada a um número de WhatsApp"
-        texto="Você entrou com sucesso, mas não encontramos um perfil ligado a este login. Fale com o suporte para concluir o seu cadastro."
-      />
-    );
+    // Autenticado sem perfil (ex.: compra sem telefone): vincula o WhatsApp por código.
+    return <VincularWhatsApp aoVincular={recarregarPerfil} />;
   }
 
   return (

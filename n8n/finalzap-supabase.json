@@ -1071,6 +1071,93 @@
         }
       },
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1000000-0000-4000-8000-000000000001",
+              "leftValue": "={{ $json.tipo === 'text' && /^\\s*FZ-[0-9A-Fa-f]{8}\\s*$/.test($json.texto) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000010",
+      "name": "É código de vínculo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://SEU-PROJETO.supabase.co/rest/v1/rpc/vincular_whatsapp",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_telefone: $json.telefone, p_codigo: $json.texto.trim() }) }}",
+        "options": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000011",
+      "name": "Vincular WhatsApp (RPC)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        80
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Troque SEU-PROJETO pela URL do seu projeto Supabase (a mesma da credencial Supabase FINALZAP).",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Normalizar mensagem').first().json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Normalizar mensagem').first().json.wa_id }}",
+        "textBody": "={{ $json.mensagem || 'Não consegui concluir o vínculo agora. Tente de novo em alguns minutos.' }}",
+        "additionalFields": {}
+      },
+      "id": "c1000000-0000-4000-8000-000000000012",
+      "name": "Responder vínculo",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        60
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "ARKXIhWGdy3PtWh9",
+          "name": "WhatsApp account"
+        }
+      },
+      "webhookId": "c1000000-0000-4000-8000-0000000000a1"
     }
   ],
   "connections": {
@@ -1210,7 +1297,7 @@
       "main": [
         [
           {
-            "node": "Buscar assinatura",
+            "node": "É código de vínculo?",
             "type": "main",
             "index": 0
           }
@@ -1465,6 +1552,42 @@
         [
           {
             "node": "Registrar log do lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É código de vínculo?": {
+      "main": [
+        [
+          {
+            "node": "Vincular WhatsApp (RPC)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vincular WhatsApp (RPC)": {
+      "main": [
+        [
+          {
+            "node": "Responder vínculo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder erro",
             "type": "main",
             "index": 0
           }
