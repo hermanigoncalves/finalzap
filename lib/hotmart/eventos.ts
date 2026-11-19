@@ -135,14 +135,19 @@ export function lerWebhook(corpo: unknown): EventoHotmart | null {
   };
 }
 
-// Vencimento: proxima cobranca informada; senao aprovacao + 1 mes; senao null.
-export function calcularVencimento(e: EventoHotmart): Date | null {
+// Vencimento: proxima cobranca informada; senao aprovacao + periodo do plano (1 mes, ou 12 se anual).
+// Compra aprovada sem nenhuma das datas usa agora como base: null significaria acesso sem fim.
+export function calcularVencimento(e: EventoHotmart, agora: Date = new Date()): Date | null {
   if (e.proximaCobranca) return e.proximaCobranca;
-  if (!e.aprovadoEm) return null;
-  const v = new Date(e.aprovadoEm.getTime());
+  const compraAprovada = e.tipo === 'PURCHASE_APPROVED' || e.tipo === 'PURCHASE_COMPLETE';
+  const base = e.aprovadoEm ?? (compraAprovada ? agora : null);
+  if (!base) return null;
+  // Mesma regra de normalizarPlano (linhas.ts); repetida porque este modulo nao importa do projeto.
+  const meses = /anual|annual|year/i.test(e.plano ?? '') ? 12 : 1;
+  const v = new Date(base.getTime());
   const dia = v.getUTCDate();
   v.setUTCDate(1); // evita transbordo: 31/01 + 1 mês = 28/02, não 03/03
-  v.setUTCMonth(v.getUTCMonth() + 1);
+  v.setUTCMonth(v.getUTCMonth() + meses);
   const ultimo = new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth() + 1, 0)).getUTCDate();
   v.setUTCDate(Math.min(dia, ultimo));
   return v;

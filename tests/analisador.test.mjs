@@ -27,8 +27,10 @@ function analisarMensagemOffline(mensagem) {
     categoria = 'Transporte';
   } else if (/luz|energia|agua|[aá]gua|aluguel|internet|condom[ií]nio/i.test(textoLimpo)) {
     categoria = 'Moradia';
-  } else if (/sal[aá]rio|rendimento|freela|dividendos/i.test(textoLimpo)) {
-    categoria = 'Renda';
+  } else if (/freela/i.test(textoLimpo)) {
+    categoria = 'Freelance';
+  } else if (/sal[aá]rio/i.test(textoLimpo)) {
+    categoria = 'Salário';
   }
 
   const descricao = textoLimpo.slice(0, 100) || 'Lançamento WhatsApp';
@@ -70,7 +72,7 @@ describe('🛡️ Testes de Sanitização e Prevenção de Injeção de Prompt',
   it('Deve classificar receitas corretamente no modo offline', () => {
     const resultado = analisarMensagemOffline('Recebi pix de 1500 reais de salário');
     assert.strictEqual(resultado.tipo, 'receita');
-    assert.strictEqual(resultado.categoria, 'Renda');
+    assert.strictEqual(resultado.categoria, 'Salário');
     assert.strictEqual(resultado.valor, 1500);
   });
 });

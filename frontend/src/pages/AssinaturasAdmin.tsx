@@ -160,7 +160,7 @@ export default function Administrador() {
     void carregarMeta();
     void carregarOpenai();
     void carregarCredenciais();
-  }, [tab]);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps -- as funções são recriadas a cada render; recarregar só ao trocar de aba
 
   const executar = async (acao: () => Promise<unknown>): Promise<boolean> => {
     try {
@@ -175,15 +175,16 @@ export default function Administrador() {
 
   useEffect(() => {
     void carregar();
-  }, [periodo]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [periodo]);
 
   useEffect(() => {
 
-    // Tempo real: qualquer inserção/alteração de uso, assinatura ou custo atualiza a tela.
+    // Tempo real: alterações de uso, assinatura ou custo recarregam a tela no máximo 1x a cada 30 s
+    // (uso_servico muda a cada mensagem do bot; recarregar a cada evento sobrecarregava o painel).
     let timer: ReturnType<typeof setTimeout> | undefined;
     const agendar = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => { void carregar(); }, 400);
+      if (timer) return;
+      timer = setTimeout(() => { timer = undefined; void carregar(); }, 30_000);
     };
     const canal = supabase
       .channel('admin-tempo-real')
@@ -692,7 +693,7 @@ export default function Administrador() {
         <>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <span className={`w-2 h-2 rounded-full ${aoVivo ? 'bg-green-500 animate-pulse' : 'bg-slate-400'}`} />
-            {aoVivo ? 'Ao vivo: atualiza sozinho a cada uso registrado' : 'Conectando ao tempo real...'}
+            {aoVivo ? 'Ao vivo: atualiza sozinho até 30 s após cada uso registrado' : 'Conectando ao tempo real...'}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {Object.keys(resumoUso).length === 0 ? (

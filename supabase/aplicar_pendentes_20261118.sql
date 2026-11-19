@@ -382,3 +382,111 @@ $$;
 REVOKE ALL ON FUNCTION public.resumo_admin_periodo(date, date) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.resumo_admin_periodo(date, date) TO authenticated;
 
+
+-- ===== migrations/20261118000007_handle_new_user_definer.sql =====
+-- No banco, handle_new_user perdeu o SECURITY DEFINER: o gatilho roda como o usuário interno do Auth,
+-- que não grava em profiles (RLS sem regra de INSERT), e todo cadastro novo (Google ou e-mail) falha
+-- com "Database error saving new user". Restaura a definição original da migração 20260311000001.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, first_name)
+  VALUES (NEW.id, split_part(NEW.email, '@', 1))
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+-- Só o gatilho chama esta função.
+REVOKE ALL ON FUNCTION public.handle_new_user() FROM PUBLIC, anon, authenticated;
+
+-- ===== migrations/20261119000001_endurece_funcoes_indices.sql =====
+-- ============================================================
+-- FINALZAP: endurecimento de funções legadas, dono no gatilho de reabrir conta e índices do n8n/admin.
+-- Aditiva e reexecutável. Rodar depois de 20261118000007_handle_new_user_definer.sql.
+-- ============================================================
+
+-- 1. [SEC-5] Funções SECURITY DEFINER do modelo legado (202603* / schema.sql) sem search_path e
+-- executáveis por anon. Nenhuma é RPC do cliente (frontend/lib não chamam): só gatilhos e seed.sql.
+-- Só mexe nas que existem (o banco limpo do DEPLOY.md não tem o modelo legado).
+DO $$
+DECLARE
+  f TEXT;
+BEGIN
+  FOREACH f IN ARRAY ARRAY[
+    'public.seed_default_categories(uuid)',
+    'public.update_account_balance()',
+    'public.update_savings_goal_amount()',
+    'public.handle_new_profile()'
+  ] LOOP
+    IF to_regprocedure(f) IS NOT NULL THEN
+      EXECUTE format('ALTER FUNCTION %s SET search_path = public', f);
+      EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC, anon, authenticated', f);
+    END IF;
+  END LOOP;
+END $$;
+
+-- 2. [SEC-7] Apagar a despesa de conta paga só reabre a conta do mesmo dono (telefone canônico nas duas tabelas).
+CREATE OR REPLACE FUNCTION public.tr_despesa_apagada_reabre_conta()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- casa pela chave (não por movimentacao_id): a FK ON DELETE SET NULL pode rodar antes deste gatilho
+  UPDATE public.contas_a_pagar
+     SET status = 'pendente'
+   WHERE 'conta_' || id::text = OLD.idempotency_key
+     AND telefone = OLD.telefone
+     AND status = 'paga';
+  RETURN NULL;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.tr_despesa_apagada_reabre_conta() FROM PUBLIC, anon, authenticated;
+
+-- 3. [PERF-6] Painel admin soma custo por período (resumo_admin_*), sem filtro de telefone/serviço.
+CREATE INDEX IF NOT EXISTS idx_uso_servico_data ON public.uso_servico (data) INCLUDE (custo_usd, custo_brl);
+
+-- 4. [PERF-7] O n8n filtra assinaturas por telefone = '...' (igualdade); o índice existente é funcional.
+CREATE INDEX IF NOT EXISTS idx_assinaturas_telefone ON public.assinaturas (telefone) WHERE telefone IS NOT NULL;
+
+-- ===== migrations/20261119000002_chave_conta_do_dono.sql =====
+-- ============================================================
+-- FINALZAP: a chave conta_<id> em movimentacoes só pode ser usada pelo dono da conta.
+-- Sem isto, o usuário B grava antes uma movimentação com idempotency_key = 'conta_<id da conta de A>'
+-- (UNIQUE global); quando A paga, o ON CONFLICT DO NOTHING reaproveita a linha de B e a despesa
+-- de A não entra no extrato de A. Vale para todos os caminhos: painel (RLS), n8n (service_role),
+-- RPC marcar_conta_paga_com_despesa e gatilho tr_conta_paga_lanca_despesa.
+-- Aditiva e reexecutável. Rodar depois de 20261119000001_endurece_funcoes_indices.sql.
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.tr_valida_chave_conta()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public
+AS $$
+BEGIN
+  IF NEW.idempotency_key LIKE 'conta\_%' AND NOT EXISTS (
+       SELECT 1 FROM public.contas_a_pagar c
+        WHERE c.id::text = substr(NEW.idempotency_key, 7)
+          AND c.telefone = NEW.telefone
+     ) THEN
+    RAISE EXCEPTION 'Chave conta_<id> só pode ser usada pelo dono da conta.' USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- Nome ordena depois de tr_movimentacoes_telefone: o telefone já chega canônico aqui.
+DROP TRIGGER IF EXISTS tr_movimentacoes_valida_chave_conta ON public.movimentacoes;
+CREATE TRIGGER tr_movimentacoes_valida_chave_conta
+  BEFORE INSERT OR UPDATE OF idempotency_key, telefone ON public.movimentacoes
+  FOR EACH ROW EXECUTE FUNCTION public.tr_valida_chave_conta();
+
+REVOKE EXECUTE ON FUNCTION public.tr_valida_chave_conta() FROM PUBLIC, anon;

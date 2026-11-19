@@ -59,9 +59,10 @@ export async function validateJwtAuth(req: any): Promise<AuthResult> {
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
+      if (error) console.warn('[jwtAuth] getUser falhou:', error.message);
       return {
         user: null,
-        error: `Unauthorized: Token inválido ou expirado (${error?.message || 'usuário não encontrado'}).`,
+        error: 'Unauthorized: Token inválido ou expirado.',
         statusCode: 401,
       };
     }
@@ -72,9 +73,10 @@ export async function validateJwtAuth(req: any): Promise<AuthResult> {
       statusCode: 200,
     };
   } catch (err: any) {
+    console.error('[jwtAuth] erro interno:', err?.message);
     return {
       user: null,
-      error: `Internal Auth Error: ${err.message}`,
+      error: 'Erro interno de autenticação.',
       statusCode: 500,
     };
   }

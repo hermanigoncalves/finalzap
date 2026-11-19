@@ -51,8 +51,10 @@ export function analisarMensagemOffline(mensagem: string): TransacaoExtraida {
     categoria = 'Transporte';
   } else if (/luz|energia|agua|[aá]gua|aluguel|internet|condom[ií]nio/i.test(textoLimpo)) {
     categoria = 'Moradia';
-  } else if (/sal[aá]rio|rendimento|freela|dividendos/i.test(textoLimpo)) {
-    categoria = 'Renda';
+  } else if (/freela/i.test(textoLimpo)) {
+    categoria = 'Freelance';
+  } else if (/sal[aá]rio/i.test(textoLimpo)) {
+    categoria = 'Salário';
   }
 
   const descricao = textoLimpo.slice(0, 100) || 'Lançamento WhatsApp';
@@ -82,13 +84,14 @@ export async function analisarMensagemFinanceira(
     return analisarMensagemOffline(mensagemSanitizada);
   }
 
-  const openai = new OpenAI({ apiKey });
+  // Abaixo do maxDuration (30s) da função; erro/timeout cai no fallback offline do catch.
+  const openai = new OpenAI({ apiKey, timeout: 15000, maxRetries: 1 });
 
   const systemPrompt = `Você é um assistente financeiro especialista em extrair dados de transações a partir de mensagens informais em português.
 Seu objetivo é extrair estritamente os campos:
 - valor: número positivo (use ponto para decimais, ex: 25.50)
 - descricao: texto curto com a descrição do gasto ou ganho
-- categoria: categoria mais apropriada (ex: Alimentação, Transporte, Moradia, Lazer, Saúde, Renda, Outros)
+- categoria: uma destas. Despesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Serviços, Software, Outros. Receitas: Salário, Freelance, Vendas, Outros
 - tipo: "despesa" ou "receita"
 
 REGRAS DE SEGURANÇA INEGOCIÁVEIS:

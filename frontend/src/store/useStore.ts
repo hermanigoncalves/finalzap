@@ -176,6 +176,14 @@ const defaultCategories: Category[] = [
   { id: 'cat_5', name: 'Salário',      type: 'income',  color: 'bg-green-500'  },
   { id: 'cat_6', name: 'Serviços',     type: 'expense', color: 'bg-slate-500'  },
   { id: 'cat_7', name: 'Software',     type: 'expense', color: 'bg-indigo-500' },
+  { id: 'cat_8', name: 'Educação',     type: 'expense', color: 'bg-cyan-500'   },
+  { id: 'cat_9', name: 'Lazer',        type: 'expense', color: 'bg-pink-500'   },
+  { id: 'cat_10', name: 'Compras',     type: 'expense', color: 'bg-amber-500'  },
+  { id: 'cat_11', name: 'Contas',      type: 'expense', color: 'bg-yellow-600' },
+  { id: 'cat_12', name: 'Outros',      type: 'expense', color: 'bg-gray-500'   },
+  { id: 'cat_13', name: 'Freelance',   type: 'income',  color: 'bg-emerald-500'},
+  { id: 'cat_14', name: 'Vendas',      type: 'income',  color: 'bg-teal-500'   },
+  { id: 'cat_15', name: 'Outros',      type: 'income',  color: 'bg-lime-500'   },
 ];
 
 export const sampleDemoData = {
@@ -351,6 +359,26 @@ export const useStore = create<AppState>()(
       updateSettings: (updates) =>
         set((s) => ({ userSettings: { ...s.userSettings, ...updates } })),
     }),
-    { name: 'finance-store' }
+    {
+      name: 'finance-store',
+      // Transações e contas a pagar vêm do Supabase e as categorias do código: só o resto vai ao localStorage.
+      partialize: (s) => ({
+        accounts: s.accounts,
+        investments: s.investments,
+        savingsGoals: s.savingsGoals,
+        savingsContributions: s.savingsContributions,
+        userSettings: s.userSettings,
+        creditCards: s.creditCards,
+      }),
+      // v0 gravava tudo: descarta histórico e lista de categorias antiga salvos por versões anteriores.
+      version: 1,
+      migrate: (salvo) => {
+        const s = { ...(salvo as Record<string, unknown>) };
+        delete s.transactions;
+        delete s.fixedTransactions;
+        delete s.categories;
+        return s as unknown as AppState;
+      },
+    }
   )
 );

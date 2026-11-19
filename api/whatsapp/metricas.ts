@@ -12,15 +12,20 @@ export default async function handler(req: any, res: any) {
     const supabase = await exigirAdmin(req, res);
     if (!supabase) return;
 
-    const token = await lerCredencial(supabase, 'META_ACCESS_TOKEN');
-    const wabaId = await lerCredencial(supabase, 'META_WABA_ID');
+    const [token, wabaId] = await Promise.all([
+      lerCredencial(supabase, 'META_ACCESS_TOKEN'),
+      lerCredencial(supabase, 'META_WABA_ID'),
+    ]);
     if (!token || !wabaId) {
       return res.status(500).json({ error: 'Token e ID da conta da Meta não configurados.' });
     }
 
     const { inicio, fim } = intervaloDoMes(new Date());
     const url = montarUrlPricing(wabaId, inicio, fim, process.env.META_GRAPH_VERSION || 'v21.0');
-    const resposta = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const resposta = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
     const json: any = await resposta.json().catch(() => ({}));
 
     if (!resposta.ok) {

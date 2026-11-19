@@ -1,7 +1,7 @@
 import { ArrowDownRight, ArrowUpRight, Plus, Search, Trash2, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, Button, Badge, Modal } from '../components/ui';
 import { useStore, type TransactionType } from '../store/useStore';
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { useFinance } from '../hooks/useFinance';
 import { paraTipoMovimentacao } from '../lib/tipos';
@@ -30,12 +30,9 @@ export default function Transactions() {
   const [catId, setCatId] = useState('');
   const [date, setDate] = useState(hojeISO());
 
-  // Sincroniza transações do store (que já vieram do banco via useFinance)
+  // Transações do store, já carregadas do banco pelo useFinance ao montar
   const transactions = useStore((state) => state.transactions);
-
-  useEffect(() => {
-    recarregar();
-  }, [recarregar]);
+  const categoriaPorId = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
 
   const handleAddTx = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +56,6 @@ export default function Transactions() {
     setDesc('');
     setAmount('');
     setDate(hojeISO());
-    await recarregar();
   };
 
   const handleDelete = async (id: string) => {
@@ -68,7 +64,7 @@ export default function Transactions() {
     if (!resultado.sucesso) alert(resultado.mensagem);
   };
 
-  const filteredTx = transactions
+  const filteredTx = useMemo(() => transactions
     .filter((tx) =>
       tx.description.toLowerCase().includes(searchTerm.toLowerCase())
     )
@@ -86,7 +82,7 @@ export default function Transactions() {
       if (filtroTipo === 'receita') return tx.type === 'income';
       return tx.type === 'expense';
     })
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort((a, b) => b.date.localeCompare(a.date)), [transactions, searchTerm, periodo, filtroTipo]);
 
   const totalReceitas = filteredTx.filter((t) => t.type === 'income').reduce((a, t) => a + t.amount, 0);
   const totalDespesas = filteredTx.filter((t) => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
@@ -218,8 +214,8 @@ export default function Transactions() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredTx.map((tx) => {
-                    const cat = categories.find((c) => c.id === tx.categoryId);
-                                    return (
+                    const cat = categoriaPorId.get(tx.categoryId);
+                    return (
                       <tr
                         key={tx.id}
                         className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group"

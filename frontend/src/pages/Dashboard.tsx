@@ -1,39 +1,33 @@
 import { Card, CardContent, CardHeader, CardTitle, Button, Modal } from '../components/ui';
-import type { ResumoMensal, ContaAPagar } from '../lib/financeService';
+import type { ContaAPagar } from '../lib/financeService';
 import { Link } from 'react-router-dom';
 import { useStore, type TransactionType } from '../store/useStore';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 import { ArrowDownRight, ArrowUpRight, Wallet, ArrowRight, Plus, MessageCircle } from 'lucide-react';
 import { useFinance } from '../hooks/useFinance';
 import { paraTipoMovimentacao } from '../lib/tipos';
 import { hojeISO, mesAtual as mesAtualSP, somarMeses } from '../lib/datas';
 import { nomeDaCategoria } from '../lib/categorias';
 
+const GraficoFluxoCaixa = lazy(() => import('../components/GraficoFluxoCaixa'));
+
 export default function Dashboard() {
   const { transactions, categories } = useStore();
   const {
     loading,
     error,
-    resumo_mensal,
-    consultar_saldo,
     lista_contas_vencendo,
     registrar_movimentacao,
   } = useFinance();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [enviando, setEnviando] = useState(false);
-  const [resumo, setResumo] = useState<ResumoMensal | null>(null);
-  const [saldoTotal, setSaldoTotal] = useState<number | null>(null);
   const [contasVencendo, setContasVencendo] = useState<ContaAPagar[]>([]);
 
-  // Resumo do mês, saldo geral e contas que vencem hoje, direto do banco
+  // Saldo e resumo do mês saem do histórico que o useFinance já carregou; só as contas do dia vêm do banco aqui.
   const carregarResumo = async () => {
-    const [r, s, cv] = await Promise.all([resumo_mensal(), consultar_saldo(), lista_contas_vencendo(0)]);
-    setResumo(r);
-    setSaldoTotal(s.saldo);
-    setContasVencendo(cv);
+    setContasVencendo(await lista_contas_vencendo(0));
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- carga inicial; carregarResumo é recriada a cada render
   useEffect(() => { void carregarResumo(); }, []);
@@ -103,7 +97,8 @@ export default function Dashboard() {
     };
   });
 
-  const resumoExibicao = resumo || {
+  const saldoTotal = transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
+  const resumoExibicao = {
     mes: mesAtual,
     totalReceitas: monthlyIncome,
     totalDespesas: monthlyExpenses,
@@ -113,7 +108,7 @@ export default function Dashboard() {
   const summaryData = [
     {
       title: 'Saldo Total',
-      value: formatCurrency(saldoTotal ?? resumoExibicao.saldo),
+      value: formatCurrency(saldoTotal),
       icon: Wallet,
       color: 'text-slate-900 dark:text-white',
     },
@@ -244,21 +239,9 @@ export default function Dashboard() {
                 Registre uma movimentação para visualizar seu histórico.
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={cashFlowData} margin={{ top: 12, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.2} />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <Tooltip
-                    formatter={(value, name) => [
-                      formatCurrency(Number(value)),
-                      name === 'income' ? 'Receitas' : 'Despesas',
-                    ]}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Bar dataKey="income" name="Receitas" fill="#10A36A" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="expense" name="Despesas" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <Suspense fallback={<div className="h-[280px]" />}>
+                <GraficoFluxoCaixa data={cashFlowData} />
+              </Suspense>
             )}
           </CardContent>
         </Card>

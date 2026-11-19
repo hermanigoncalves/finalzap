@@ -23,6 +23,9 @@ Arquitetura em produção:
    8. `supabase/migrations/20261118000004_entradas_dashboard_admin.sql`
    9. `supabase/migrations/20261118000005_taxas_hotmart_custos_usd.sql`
    10. `supabase/migrations/20261118000006_resumo_admin_periodo.sql`
+   11. `supabase/migrations/20261118000007_handle_new_user_definer.sql`
+   12. `supabase/migrations/20261119000001_endurece_funcoes_indices.sql`
+   13. `supabase/migrations/20261119000002_chave_conta_do_dono.sql`
 
    As demais migrações em `supabase/migrations/` (2026-03) são do modelo antigo em inglês e **não** são necessárias.
 3. **Authentication > URL Configuration**:

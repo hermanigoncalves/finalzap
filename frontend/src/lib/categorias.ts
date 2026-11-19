@@ -10,10 +10,12 @@ export function nomeDaCategoria(idOuNome: string): string {
   return cat ? cat.name : idOuNome;
 }
 
-export function idDaCategoria(nome: string): string {
+export function idDaCategoria(nome: string, tipo?: 'income' | 'expense'): string {
   const alvo = nome.trim().toLowerCase();
-  const cat = useStore
+  const iguais = useStore
     .getState()
-    .categories.find((c) => c.name.toLowerCase() === alvo || c.id === nome);
+    .categories.filter((c) => c.name.toLowerCase() === alvo || c.id === nome);
+  // "Outros" existe como despesa e como receita: o tipo desempata.
+  const cat = iguais.find((c) => !tipo || c.type === tipo) ?? iguais[0];
   return cat ? cat.id : nome;
 }

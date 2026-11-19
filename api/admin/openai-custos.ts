@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
     const inicio = Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), 1) / 1000;
     const resposta = await fetch(
       `https://api.openai.com/v1/organization/costs?start_time=${inicio}&bucket_width=1d&limit=31`,
-      { headers: { Authorization: `Bearer ${chave}` } },
+      { headers: { Authorization: `Bearer ${chave}` }, signal: AbortSignal.timeout(10000) },
     );
     const json: any = await resposta.json().catch(() => ({}));
     if (!resposta.ok) {

@@ -67,10 +67,10 @@ export function useFinance() {
         telefone?: string;
       }> = movs.map((m) => ({
         id: m.id,
-        description: m.descricao,
+        description: m.descricao ?? '',
         amount: Number(m.valor),
         type: m.tipo === 'receita' ? 'income' : 'expense',
-        categoryId: idDaCategoria(m.categoria),
+        categoryId: idDaCategoria(m.categoria, m.tipo === 'receita' ? 'income' : 'expense'),
         accountId: 'acc_whatsapp',
         date: m.data,
         mes: m.mes,
@@ -80,20 +80,14 @@ export function useFinance() {
 
       useStore.setState({ transactions: txsDoBanco });
 
-      // 2. Saldos
-      await consultar_saldo();
-
-      // 3. Orçamentos
-      // (orçamentos são lidos direto do banco pela tela de Orçamento)
-
-      // 4. Contas a pagar
+      // 2. Contas a pagar (saldos e orçamentos são lidos pelas próprias telas)
       const contas = await listar_contas_a_pagar();
       const fixasDoBanco = contas.map((c) => ({
         id: c.id,
         description: c.descricao,
         amount: Number(c.valor),
         type: 'expense' as const,
-        categoryId: c.categoria || 'Contas',
+        categoryId: idDaCategoria(c.categoria || 'Contas'),
         accountId: 'acc_whatsapp',
         date: c.vencimento,
         vencimento: c.vencimento,

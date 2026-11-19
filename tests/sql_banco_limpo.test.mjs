@@ -19,6 +19,9 @@ const cadeia = [
   '20261118000004_entradas_dashboard_admin.sql',
   '20261118000005_taxas_hotmart_custos_usd.sql',
   '20261118000006_resumo_admin_periodo.sql',
+  '20261118000007_handle_new_user_definer.sql',
+  '20261119000001_endurece_funcoes_indices.sql',
+  '20261119000002_chave_conta_do_dono.sql',
 ];
 
 let PGlite;
@@ -317,6 +320,55 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     assert.equal(Number(vazio.entradas) + Number(vazio.custos_fixos), 0);
     await db.exec('reset role; set role anon');
     await assert.rejects(() => q(`select * from public.resumo_admin_mensal(6)`), /permission denied/);
+    await db.exec('reset role');
+  });
+  it('SEC-7: apagar despesa de outro dono com a chave conta_<id> não reabre a conta de A', async () => {
+    await db.exec('reset role');
+    const TA = '5511944440001';
+    const TB = '5511944440002';
+    await q(`insert into public.contas_a_pagar(telefone, descricao, valor, vencimento) values ('${TA}','Conta SEC7',10,current_date)`);
+    const id = (await q(`select id from public.contas_a_pagar where descricao='Conta SEC7'`))[0].id;
+    // Simula linha de B gravada antes da trava 20261119000002 (que hoje recusaria o insert).
+    await db.exec('alter table public.movimentacoes disable trigger tr_movimentacoes_valida_chave_conta');
+    await q(`insert into public.movimentacoes(telefone,tipo,valor,categoria,fonte,idempotency_key)
+             values ('${TB}','despesa',1,'x','conta_paga','conta_${id}')`);
+    await db.exec('alter table public.movimentacoes enable trigger tr_movimentacoes_valida_chave_conta');
+    await q(`update public.contas_a_pagar set status='paga' where id='${id}'`);
+    await q(`delete from public.movimentacoes where telefone='${TB}'`);
+    assert.equal((await q(`select status from public.contas_a_pagar where id='${id}'`))[0].status, 'paga');
+  });
+  it('chave conta_<id> só pelo dono: B não sequestra a despesa da conta de A', async () => {
+    await db.exec('reset role');
+    const TA = '5511944440003';
+    const TB = '5511944440004';
+    await q(`insert into public.contas_a_pagar(telefone, descricao, valor, vencimento) values ('${TA}','Conta chave',25,current_date)`);
+    const id = (await q(`select id from public.contas_a_pagar where descricao='Conta chave'`))[0].id;
+    await assert.rejects(
+      () => q(`insert into public.movimentacoes(telefone,tipo,valor,categoria,fonte,idempotency_key)
+               values ('${TB}','despesa',1,'x','painel','conta_${id}')`),
+      /dono da conta/,
+    );
+    await q(`update public.contas_a_pagar set status='paga' where id='${id}'`);
+    const mov = await q(`select telefone, valor from public.movimentacoes where idempotency_key='conta_${id}'`);
+    assert.equal(mov.length, 1);
+    assert.equal(mov[0].telefone, TA);
+    assert.equal(Number(mov[0].valor), 25);
+  });
+  it('SEC-5: funções DEFINER legadas com search_path fixo e sem EXECUTE para anon/authenticated', async () => {
+    await db.exec('reset role');
+    // modelo legado (só existe no banco real) + reaplica a migração de endurecimento
+    for (const f of ['20260311000001_create_profiles.sql', '20260311000002_create_categories.sql',
+      '20261118000007_handle_new_user_definer.sql', '20261119000001_endurece_funcoes_indices.sql']) {
+      await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
+    }
+    const fn = 'public.seed_default_categories(uuid)';
+    assert.deepEqual((await q(`select proconfig from pg_proc where oid='${fn}'::regprocedure`))[0].proconfig, ['search_path=public']);
+    for (const r of ['anon', 'authenticated']) {
+      assert.equal((await q(`select has_function_privilege('${r}','${fn}','execute') ok`))[0].ok, false, r);
+    }
+    assert.equal((await q(`select has_function_privilege('service_role','${fn}','execute') ok`))[0].ok, true);
+    await db.exec('set role anon');
+    await assert.rejects(() => rpc('seed_default_categories', A), /permission denied/);
     await db.exec('reset role');
   });
 });

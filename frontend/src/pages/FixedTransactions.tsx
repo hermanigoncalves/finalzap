@@ -174,7 +174,7 @@ export default function FixedTransactions() {
                   <div>
                     <p className="text-sm font-medium text-slate-900 dark:text-white">{conta.descricao}</p>
                     <p className="text-xs text-slate-500">
-                      Vence em {dias === 0 ? 'HOJE' : `em ${dias} dia(s)`} — {formatar_moeda_brl(conta.valor)}
+                      Vence {dias === 0 ? 'HOJE' : `em ${dias} dia(s)`} — {formatar_moeda_brl(conta.valor)}
                     </p>
                   </div>
                   <Button

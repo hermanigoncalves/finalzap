@@ -114,8 +114,14 @@ test('calcularVencimento: senao aprovadoEm + 1 mes', () => {
   assert.equal(v?.toISOString(), '2024-02-15T12:00:00.000Z');
 });
 
-test('calcularVencimento: sem nenhum dos dois retorna null', () => {
-  assert.equal(calcularVencimento(base({})), null);
+test('calcularVencimento: sem nenhum dos dois retorna null (evento que nao e compra aprovada)', () => {
+  assert.equal(calcularVencimento(base({ tipo: 'PURCHASE_REFUNDED' })), null);
+});
+
+test('calcularVencimento: compra aprovada sem datas usa agora + periodo do plano (nunca null)', () => {
+  const agora = new Date('2024-01-31T10:00:00.000Z');
+  assert.equal(calcularVencimento(base({}), agora)?.toISOString(), '2024-02-29T10:00:00.000Z');
+  assert.equal(calcularVencimento(base({ plano: 'Plano Anual' }), agora)?.toISOString(), '2025-01-31T10:00:00.000Z');
 });
 
 test('lerWebhook: creation_date ausente -> criadoEm null e resto intacto', () => {
