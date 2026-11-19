@@ -126,7 +126,9 @@ export default function Administrador() {
   const carregarOpenai = async () => {
     setOpenaiErro(null);
     try {
-      setOpenaiCusto(await chamarApi('/api/admin/openai-custos'));
+      const json = await chamarApi('/api/admin/openai-custos');
+      if (typeof json?.total !== 'number') throw new Error('Resposta inválida da API (rode com "vercel dev" para ter o /api).');
+      setOpenaiCusto(json);
     } catch (e) {
       setOpenaiCusto(null);
       setOpenaiErro(e instanceof Error ? e.message : 'Falha ao consultar a OpenAI.');

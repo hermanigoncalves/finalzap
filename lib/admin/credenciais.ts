@@ -20,7 +20,12 @@ export async function exigirAdmin(req: any, res: any): Promise<SupabaseClient | 
   }
   // O papel é lido do banco com a chave de serviço, nunca do navegador.
   const supabase = clienteServico();
-  const { data: perfil } = await supabase.from('perfis').select('role').eq('auth_id', auth.user.id).maybeSingle();
+  const { data: perfil, error: erroPerfil } = await supabase.from('perfis').select('role').eq('auth_id', auth.user.id).maybeSingle();
+  if (erroPerfil) {
+    console.error('[exigirAdmin] falha ao ler perfis:', erroPerfil.message);
+    res.status(500).json({ error: 'Falha ao verificar permissão de administrador.' });
+    return null;
+  }
   if (perfil?.role !== 'admin') {
     res.status(403).json({ error: 'Acesso negado.' });
     return null;
