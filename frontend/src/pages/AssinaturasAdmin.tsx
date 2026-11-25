@@ -19,7 +19,15 @@ const STATUS_CORES: Record<string, string> = {
   Inadimplente: 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400 border-amber-200 dark:border-amber-800/40',
 };
 
-type Tab = 'dashboard' | 'assinaturas' | 'tokens' | 'custos';
+type Tab = 'dashboard' | 'assinaturas' | 'tokens' | 'custos' | 'whatsapp';
+
+const STATUS_WAHA: Record<string, string> = {
+  WORKING: 'Conectado',
+  SCAN_QR_CODE: 'Aguardando leitura do QR Code',
+  STARTING: 'Iniciando...',
+  STOPPED: 'Parado',
+  FAILED: 'Falhou',
+};
 
 export default function Administrador() {
   const {
@@ -38,25 +46,27 @@ export default function Administrador() {
   const [custosFixos, setCustosFixos] = useState<CustoFixo[]>([]);
   const [params] = useSearchParams();
   const abaUrl = params.get('aba');
-  const tab: Tab = abaUrl === 'tokens' || abaUrl === 'custos' || abaUrl === 'assinaturas' ? abaUrl : 'dashboard';
+  const tab: Tab = abaUrl === 'tokens' || abaUrl === 'custos' || abaUrl === 'assinaturas' || abaUrl === 'whatsapp' ? abaUrl : 'dashboard';
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [custoModalOpen, setCustoModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [custoEditId, setCustoEditId] = useState<string | null>(null);
   const [usos, setUsos] = useState<UsoServico[]>([]);
   const [aoVivo, setAoVivo] = useState(false);
-  const [metaLinhas, setMetaLinhas] = useState<{ categoria: string; volume: number; custo: number }[] | null>(null);
-  const [metaErro, setMetaErro] = useState<string | null>(null);
-  const [metaCarregando, setMetaCarregando] = useState(false);
   const [credenciais, setCredenciais] = useState<{ chave: string; configurada: boolean; final: string | null }[]>([]);
   const [credValores, setCredValores] = useState<Record<string, string>>({});
   const [credMsg, setCredMsg] = useState<string | null>(null);
   const [openaiCusto, setOpenaiCusto] = useState<{ total: number; moeda: string } | null>(null);
   const [openaiErro, setOpenaiErro] = useState<string | null>(null);
   const [erroLocal, setErroLocal] = useState<string | null>(null);
-  // Filtro de período único para todas as abas (padrão: 1º ao último dia do mês atual).
+  const [waha, setWaha] = useState<{ status: string; me: { id?: string; pushName?: string } | null; qr: string | null } | null>(null);
+  const [wahaErro, setWahaErro] = useState<string | null>(null);
+  const [wahaCarregando, setWahaCarregando] = useState(false);
+  const [wahaHook, setWahaHook] = useState('');
+  const wahaRef = useRef(waha);
+  wahaRef.current = waha;
   const [periodo, setPeriodo] = useState<Periodo>(() => periodoMesAtual(hojeISO()));
-  const periodoRef = useRef(periodo); // o canal em tempo real usa sempre o período atual
+  const periodoRef = useRef(periodo);
   periodoRef.current = periodo;
   const formVazio = {
     telefone: '',
@@ -87,27 +97,8 @@ export default function Administrador() {
       setCustosFixos(await listar_todos_custos_fixos());
       const { inicio, fim } = periodoRef.current;
       setUsos(periodoValido(periodoRef.current) ? await listar_todo_uso_servico(inicio, fim) : []);
-    } catch (e) {
-      setErroLocal(e instanceof Error ? e.message : 'Falha ao carregar dados.');
-    }
-  };
-
-  const carregarMeta = async () => {
-    setMetaCarregando(true);
-    setMetaErro(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Sessão expirada.');
-      const res = await fetch('/api/whatsapp/metricas', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || 'Não foi possível consultar a Meta.');
-      setMetaLinhas(json.linhas || []);
-    } catch (e) {
-      setMetaErro(e instanceof Error ? e.message : 'Falha ao consultar a Meta.');
-    } finally {
-      setMetaCarregando(false);
+    } catch {
+      setErroLocal('Não foi possível carregar os dados administrativos.');
     }
   };
 
@@ -119,7 +110,7 @@ export default function Administrador() {
       headers: { ...init.headers, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(json?.error || 'Falha na consulta.');
+    if (!res.ok) throw new Error('Falha na consulta.');
     return json;
   };
 
@@ -127,11 +118,11 @@ export default function Administrador() {
     setOpenaiErro(null);
     try {
       const json = await chamarApi('/api/admin/openai-custos');
-      if (typeof json?.total !== 'number') throw new Error('Resposta inválida da API (rode com "vercel dev" para ter o /api).');
+      if (typeof json?.total !== 'number') throw new Error('Resposta inválida');
       setOpenaiCusto(json);
     } catch (e) {
       setOpenaiCusto(null);
-      setOpenaiErro(e instanceof Error ? e.message : 'Falha ao consultar a OpenAI.');
+      setOpenaiErro(e instanceof Error && e.message === 'Sessão expirada.' ? 'Sessão expirada.' : 'Não foi possível consultar os custos da OpenAI.');
     }
   };
 
@@ -139,7 +130,7 @@ export default function Administrador() {
     try {
       setCredenciais((await chamarApi('/api/admin/credenciais')).credenciais ?? []);
     } catch (e) {
-      setCredMsg(e instanceof Error ? e.message : 'Falha ao carregar credenciais.');
+      setCredMsg(e instanceof Error && e.message === 'Sessão expirada.' ? 'Sessão expirada.' : 'Não foi possível carregar as credenciais.');
     }
   };
 
@@ -150,27 +141,51 @@ export default function Administrador() {
       setCredenciais(json.credenciais ?? []);
       setCredValores((v) => ({ ...v, [chave]: '' }));
       setCredMsg(valor ? 'Credencial salva.' : 'Credencial removida.');
-      void carregarMeta();
       void carregarOpenai();
     } catch (e) {
-      setCredMsg(e instanceof Error ? e.message : 'Falha ao salvar.');
+      setCredMsg(e instanceof Error && e.message === 'Sessão expirada.' ? 'Sessão expirada.' : 'Não foi possível salvar a credencial.');
     }
   };
 
+  const consultarWaha = async (acao?: string, extra: Record<string, string> = {}) => {
+    setWahaCarregando(true);
+    setWahaErro(null);
+    try {
+      setWaha(await chamarApi('/api/admin/waha', acao ? { method: 'POST', body: JSON.stringify({ acao, ...extra }) } : {}));
+    } catch (e) {
+      setWaha(null);
+      setWahaErro(e instanceof Error && e.message === 'Sessão expirada.' ? 'Sessão expirada.' : 'Não foi possível consultar o WAHA.');
+    } finally {
+      setWahaCarregando(false);
+    }
+  };
+
+  const salvarWaha = async (chave: string, valor: string) => {
+    await salvarCredencial(chave, valor);
+    void consultarWaha();
+  };
+
+  useEffect(() => {
+    if (tab !== 'whatsapp') return;
+    void carregarCredenciais();
+    void consultarWaha();
+    const t = setInterval(() => { if (wahaRef.current?.status === 'SCAN_QR_CODE') void consultarWaha(); }, 5000);
+    return () => clearInterval(t);
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps -- recarregar só ao trocar de aba
+
   useEffect(() => {
     if (tab !== 'tokens') return;
-    void carregarMeta();
     void carregarOpenai();
     void carregarCredenciais();
-  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps -- as funções são recriadas a cada render; recarregar só ao trocar de aba
+  }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps -- recarregar só ao trocar de aba
 
   const executar = async (acao: () => Promise<unknown>): Promise<boolean> => {
     try {
       setErroLocal(null);
       await acao();
       return true;
-    } catch (e) {
-      setErroLocal(e instanceof Error ? e.message : 'Operação falhou.');
+    } catch {
+      setErroLocal('Não foi possível concluir a operação.');
       return false;
     }
   };
@@ -180,9 +195,6 @@ export default function Administrador() {
   }, [periodo]);
 
   useEffect(() => {
-
-    // Tempo real: alterações de uso, assinatura ou custo recarregam a tela no máximo 1x a cada 30 s
-    // (uso_servico muda a cada mensagem do bot; recarregar a cada evento sobrecarregava o painel).
     let timer: ReturnType<typeof setTimeout> | undefined;
     const agendar = () => {
       if (timer) return;
@@ -214,7 +226,7 @@ export default function Administrador() {
       <div className="flex items-center justify-center h-screen bg-slate-900">
         <div className="text-center">
           <h2 className="text-red-500 dark:text-red-400 text-xl font-bold mb-2">Erro</h2>
-          <p className="text-slate-400">{error}</p>
+          <p className="text-slate-400">Não foi possível carregar os dados. Tente novamente.</p>
         </div>
       </div>
     );
@@ -252,7 +264,6 @@ export default function Administrador() {
   const handleEditar = (a: TipoAssinatura) => {
     setEditId(a.id);
     setForm({
-      // assinaturas criadas pelo webhook da Hotmart têm vários campos NULL
       telefone: a.telefone ?? '',
       nome: a.nome ?? '',
       email: a.email ?? '',
@@ -270,7 +281,7 @@ export default function Administrador() {
     if (!window.confirm('Reenviar o convite de acesso para o e-mail desta assinatura?')) return;
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error('Sessão expirada. Entre novamente.');
+      if (!session?.access_token) throw new Error('Sessão expirada.');
       const res = await fetch('/api/admin/reenviar-convite', {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
@@ -279,7 +290,7 @@ export default function Administrador() {
       const r = traduzirRespostaReenvio(res.status, await res.json().catch(() => ({})));
       alert(r.ok ? (r.tipo === 'convite' ? 'Convite reenviado.' : 'E-mail de redefinição de senha enviado.') : r.motivo);
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Não foi possível reenviar o convite agora.');
+      alert(e instanceof Error && e.message === 'Sessão expirada.' ? 'Sessão expirada. Entre novamente.' : 'Não foi possível reenviar o convite agora.');
     }
   };
 
@@ -288,7 +299,6 @@ export default function Administrador() {
     if (await executar(() => remover_assinatura(id))) await carregar();
   };
 
-  /* -------------------- Custos Fixos -------------------- */
   const handleCustoSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!custoForm.descricao || !custoForm.valor || !custoForm.vencimento) {
@@ -372,8 +382,6 @@ export default function Administrador() {
     if (await executar(() => atualizar_custo_fixo(id, { status: 'pago' }))) await carregar();
   };
 
-  /* -------------------- Tokens / Uso -------------------- */
-  // Assinaturas criadas pelo webhook não têm data_inicio: usa a criação.
   const assinaturasPeriodo = assinaturas.filter((a) => noPeriodo(a.data_inicio ?? a.created_at, periodo));
   const custosPeriodo = custosFixos.filter((c) => noPeriodo(c.vencimento, periodo));
   const resumoUso = usos
@@ -402,7 +410,6 @@ export default function Administrador() {
         </div>
       )}
 
-      {/* Conteúdo das abas */}
       {tab === 'dashboard' && <AdminDashboard periodo={periodo} />}
       {tab === 'assinaturas' && (
         <>
@@ -495,7 +502,6 @@ export default function Administrador() {
         </>
       )}
 
-      {/* Modal de assinatura */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -573,7 +579,6 @@ export default function Administrador() {
         </form>
       </Modal>
 
-      {/* Modal de Custo Fixo */}
       <Modal
         isOpen={custoModalOpen}
         onClose={() => setCustoModalOpen(false)}
@@ -719,8 +724,6 @@ export default function Administrador() {
                 Cole aqui as chaves para o painel buscar os custos reais. Ficam guardadas só no servidor e nunca são exibidas de volta.
               </p>
               {([
-                ['META_ACCESS_TOKEN', 'Meta: token de acesso (usuário do sistema)'],
-                ['META_WABA_ID', 'Meta: ID da conta do WhatsApp Business'],
                 ['OPENAI_ADMIN_KEY', 'OpenAI: chave admin (sk-admin-...)'],
               ] as const).map(([chave, rotulo]) => {
                 const atual = credenciais.find((c) => c.chave === chave);
@@ -756,37 +759,82 @@ export default function Administrador() {
               <Button type="button" variant="outline" size="sm" onClick={() => void carregarOpenai()}>Atualizar da OpenAI</Button>
             </CardContent>
           </Card>
+        </>
+      )}
+      {tab === 'whatsapp' && (
+        <>
           <Card>
-            <CardHeader>
-              <CardTitle>WhatsApp oficial (Meta): custo real do mês atual</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Instância WAHA</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              {metaCarregando && <p className="text-sm text-slate-500">Consultando a Meta...</p>}
-              {metaErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{metaErro}</p>}
-              {metaLinhas && metaLinhas.length === 0 && !metaCarregando && (
-                <p className="text-sm text-slate-500">Sem cobrança registrada pela Meta neste mês.</p>
-              )}
-              {metaLinhas && metaLinhas.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {metaLinhas.map((l) => (
-                    <div key={l.categoria} className="rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-                      <p className="text-xs text-slate-500 capitalize">{l.categoria}</p>
-                      <p className="text-lg font-bold text-slate-900 dark:text-white">{l.custo.toFixed(2)}</p>
-                      <p className="text-xs text-slate-400">{l.volume.toLocaleString('pt-BR')} mensagens</p>
-                    </div>
-                  ))}
-                  <div className="rounded-lg border border-green-300 dark:border-green-700 p-3">
-                    <p className="text-xs text-slate-500">Total</p>
-                    <p className="text-lg font-bold text-slate-900 dark:text-white">
-                      {metaLinhas.reduce((t, l) => t + l.custo, 0).toFixed(2)}
-                    </p>
-                    <p className="text-xs text-slate-400">na moeda da sua fatura Meta</p>
+              <p className="text-xs text-slate-500">URL e chave ficam guardadas só no servidor e nunca são exibidas de volta.</p>
+              {([
+                ['WAHA_URL', 'URL do WAHA (https://...)'],
+                ['WAHA_API_KEY', 'Chave de API do WAHA'],
+                ['WAHA_WEBHOOK_SECRET', 'Segredo do webhook n8n (opcional; usa chave WAHA se vazio)'],
+              ] as const).map(([chave, rotulo]) => {
+                const atual = credenciais.find((c) => c.chave === chave);
+                const valor = credValores[chave] || '';
+                return (
+                  <div key={chave} className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      aria-label={rotulo}
+                      placeholder={atual?.configurada ? `${rotulo} (configurada, termina em ${atual.final})` : rotulo}
+                      value={valor}
+                      onChange={(e) => setCredValores({ ...credValores, [chave]: e.target.value })}
+                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                    />
+                    <Button type="button" size="sm" disabled={!valor.trim()} onClick={() => void salvarWaha(chave, valor)}>Salvar</Button>
+                    <Button type="button" variant="outline" size="sm" disabled={!atual?.configurada} onClick={() => void salvarWaha(chave, '')}>Remover</Button>
                   </div>
+                );
+              })}
+              {credMsg && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{credMsg}</p>}
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-center">
+                <input
+                  type="url"
+                  aria-label="URL do webhook do n8n"
+                  placeholder="Webhook do n8n (https://.../webhook/finalzap-waha)"
+                  value={wahaHook}
+                  onChange={(e) => setWahaHook(e.target.value)}
+                  className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none"
+                />
+                <Button type="button" size="sm" disabled={!wahaHook.trim() || wahaCarregando} onClick={() => void consultarWaha('webhook', { url: wahaHook.trim() })}>Configurar webhook</Button>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Conexão do WhatsApp</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              {wahaCarregando && <p className="text-sm text-slate-500">Consultando o WAHA...</p>}
+              {wahaErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{wahaErro}</p>}
+              {waha && (
+                <div className="space-y-2">
+                  <p className="text-lg font-bold text-slate-900 dark:text-white">{STATUS_WAHA[waha.status] ?? waha.status}</p>
+                  {waha.me && <p className="text-sm text-slate-500">{waha.me.pushName ?? 'Conta'} ({waha.me.id?.replace(/@.*/, '')})</p>}
+                  {waha.qr && (
+                    <div>
+                      <img src={waha.qr} alt="QR Code para conectar o WhatsApp" className="w-64 h-64 rounded-lg border border-slate-200 bg-white p-2" />
+                      <p className="text-xs text-slate-500 mt-1">WhatsApp &gt; Aparelhos conectados &gt; Conectar um aparelho.</p>
+                    </div>
+                  )}
                 </div>
               )}
-              <Button type="button" variant="outline" size="sm" onClick={() => void carregarMeta()} disabled={metaCarregando}>
-                Atualizar da Meta
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha('start')}>Conectar</Button>
+                <Button type="button" variant="outline" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha()}>Atualizar</Button>
+                <Button type="button" variant="outline" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha('stop')}>Parar</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={wahaCarregando}
+                  onClick={() => { if (window.confirm('Desconectar o número do WhatsApp desta instância?')) void consultarWaha('logout'); }}
+                >
+                  Desconectar número
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </>

@@ -9,40 +9,63 @@ const TEMPO_ESPERA_SESSAO_MS = 10000;
 
 type Estado = 'aguardando' | 'pronto' | 'invalido';
 
+function urlTemTokenConviteOuRecovery(): boolean {
+  const texto = `${window.location.search}${window.location.hash}`;
+  return (
+    texto.includes('type=recovery') ||
+    texto.includes('type=invite') ||
+    texto.includes('access_token=') ||
+    texto.includes('token_hash=') ||
+    texto.includes('code=')
+  );
+}
+
 const inputClass =
   'w-full px-3 py-2.5 rounded-lg bg-white/10 border border-white/10 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-green-500';
 
 export default function DefinirSenha() {
   const navigate = useNavigate();
   const { signInWithGoogle } = useAuth();
-  const [estado, setEstado]         = useState<Estado>('aguardando');
+  const [temIndicioUrl]             = useState(urlTemTokenConviteOuRecovery);
+  const [estado, setEstado]         = useState<Estado>(() => (temIndicioUrl ? 'aguardando' : 'invalido'));
   const [senha, setSenha]           = useState('');
   const [confirmacao, setConfirmacao] = useState('');
   const [erro, setErro]             = useState('');
   const [enviando, setEnviando]     = useState(false);
   const senhaRef = useRef<HTMLInputElement>(null);
 
-  // O supabase-js troca os tokens do link por uma sessão temporária; aguardamos por ela.
   useEffect(() => {
     let ativo = true;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evento, sessao) => {
-      if (ativo && sessao) setEstado('pronto');
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((evento, sessao) => {
+      if (!ativo || !sessao) return;
+      if (evento === 'PASSWORD_RECOVERY' || temIndicioUrl) {
+        setEstado('pronto');
+      }
     });
+
+    if (!temIndicioUrl) {
+      return () => {
+        ativo = false;
+        subscription.unsubscribe();
+      };
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (ativo && session) setEstado('pronto');
     });
-    // Última chance antes de declarar o link inválido: a troca do token pode ter só demorado.
+
     const timer = setTimeout(async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!ativo) return;
       setEstado((atual) => (atual === 'aguardando' ? (session ? 'pronto' : 'invalido') : atual));
     }, TEMPO_ESPERA_SESSAO_MS);
+
     return () => {
       ativo = false;
       clearTimeout(timer);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [temIndicioUrl]);
 
   useEffect(() => {
     if (estado === 'pronto') senhaRef.current?.focus();
@@ -52,7 +75,6 @@ export default function DefinirSenha() {
     setErro('');
     setEnviando(true);
     const { error } = await signInWithGoogle();
-    // Sem erro, o navegador já está indo para o Google.
     if (error) {
       setErro('Não foi possível continuar com o Google. Tente novamente ou defina uma senha.');
       setEnviando(false);

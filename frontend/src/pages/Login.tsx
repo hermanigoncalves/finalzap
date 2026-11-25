@@ -10,23 +10,20 @@ export default function Login() {
   const [error, setError]           = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading]       = useState(false);
-  // E-mail/senha fica recolhido: o caminho principal é o Google.
   const [mostrarEmail, setMostrarEmail] = useState(false);
 
   const translateError = (msg: string) => {
-    if (msg.includes('Invalid login credentials')) {
-      return 'E-mail ou senha incorretos. Se ainda não possui cadastro, clique em "Criar conta" abaixo.';
-    }
-    if (msg.includes('Email not confirmed')) {
-      return 'E-mail não confirmado. Por favor, verifique sua caixa de entrada.';
-    }
-    if (msg.includes('User already registered')) {
-      return 'Este e-mail já está cadastrado. Alterne para "Entrar" e informe sua senha.';
+    if (
+      msg.includes('Invalid login credentials') ||
+      msg.includes('Email not confirmed') ||
+      msg.includes('User already registered')
+    ) {
+      return 'Não foi possível concluir o acesso. Verifique seus dados ou confirme seu e-mail.';
     }
     if (msg.includes('Password should be at least')) {
       return 'A senha deve ter pelo menos 8 caracteres.';
     }
-    return msg;
+    return 'Não foi possível processar a autenticação. Tente novamente.';
   };
 
   const entrarComGoogle = async () => {
@@ -34,7 +31,6 @@ export default function Login() {
     setSuccessMsg('');
     setLoading(true);
     const { error } = await signInWithGoogle();
-    // Sem erro, o navegador já está indo para o Google.
     if (error) {
       setError('Não foi possível entrar com o Google. Tente novamente ou use e-mail e senha.');
       setLoading(false);
@@ -59,7 +55,7 @@ export default function Login() {
         }
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? translateError(err.message) : 'Erro ao processar autenticação.');
+      setError(err instanceof Error ? translateError(err.message) : 'Não foi possível processar a autenticação. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -68,14 +64,12 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-brand-green-900 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        {/* Logo */}
         <div className="flex flex-col items-center mb-8 gap-3 text-center">
           <Brand light />
           <p className="text-xs font-semibold tracking-wide text-white/75">ASSISTENTE FINANCEIRO NO WHATSAPP</p>
           <p className="text-sm text-white/90">Organize. Controle. Planeje. Evolua.</p>
         </div>
 
-        {/* Card */}
         <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-2xl">
           <h2 className="text-white font-semibold text-lg mb-5">
             {mode === 'signin' ? 'Entrar na conta' : 'Criar conta'}

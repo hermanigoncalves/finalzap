@@ -3,7 +3,8 @@ import { User, Bell, Shield, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Button } from '../components/ui';
 import { useStore } from '../store/useStore';
 import { cn } from '../components/ui';
-import { resolverPerfilUsuario, atualizarPerfil, type PerfilUsuario } from '../lib/financeService';
+import { resolverPerfilUsuario, atualizarPerfil, excluirMinhaConta, type PerfilUsuario } from '../lib/financeService';
+import { useAuth } from '../hooks/useAuth';
 
 type Tab = 'profile' | 'notifications' | 'security';
 
@@ -15,15 +16,17 @@ const tabs: { id: Tab; label: string; icon: typeof User }[] = [
 
 export default function Settings() {
   const { userSettings, updateSettings } = useStore();
+  const { signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [saved, setSaved] = useState(false);
-  // Perfil vem de perfis (só nome/email são editáveis; telefone é somente leitura).
   const [perfil, setPerfil] = useState<PerfilUsuario | null>(null);
   const [perfilCarregado, setPerfilCarregado] = useState(false);
   const [perfilErro, setPerfilErro] = useState('');
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
+  const [erroExclusao, setErroExclusao] = useState('');
   useEffect(() => {
     resolverPerfilUsuario()
       .then((p) => { setPerfil(p); setNome(p?.nome ?? ''); setEmail(p?.email ?? ''); })
@@ -50,7 +53,6 @@ export default function Settings() {
     }
   };
 
-  // Preferências de notificação: só locais (navegador).
   const [form, setForm] = useState({ ...userSettings });
   const patch = (key: keyof typeof form, value: string | boolean | number) =>
     setForm(f => ({ ...f, [key]: value }));
@@ -58,6 +60,26 @@ export default function Settings() {
   const handleSave = () => {
     updateSettings(form);
     mostrarSalvo();
+  };
+
+  const handleExcluirConta = async () => {
+    if (!window.confirm('Tem certeza que deseja excluir sua conta e todos os seus dados? Esta ação é permanente e não pode ser desfeita.')) {
+      return;
+    }
+    setExcluindo(true);
+    setErroExclusao('');
+    try {
+      const res = await excluirMinhaConta();
+      if (!res.ok) {
+        setErroExclusao(res.mensagem || 'Não foi possível excluir sua conta.');
+        return;
+      }
+      await signOut();
+    } catch {
+      setErroExclusao('Não foi possível excluir sua conta no momento. Tente novamente.');
+    } finally {
+      setExcluindo(false);
+    }
   };
 
   return (
@@ -68,7 +90,6 @@ export default function Settings() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-[240px_1fr] items-start">
-        {/* Sidebar nav */}
         <Card className="sticky top-6">
           <div className="p-2 space-y-0.5">
             {tabs.map(tab => (
@@ -89,7 +110,6 @@ export default function Settings() {
           </div>
         </Card>
 
-        {/* --- Perfil (tabela perfis) --- */}
         {activeTab === 'profile' && (
           <Card>
             <CardHeader>
@@ -126,7 +146,6 @@ export default function Settings() {
           </Card>
         )}
 
-        {/* --- Notificações --- */}
         {activeTab === 'notifications' && (
           <Card>
             <CardHeader>
@@ -135,7 +154,6 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-3">
 
-              {/* Saldo baixo */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -165,7 +183,6 @@ export default function Settings() {
                 )}
               </div>
 
-              {/* Orçamento */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -193,7 +210,6 @@ export default function Settings() {
                 )}
               </div>
 
-              {/* Contas a vencer */}
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 space-y-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -229,7 +245,6 @@ export default function Settings() {
           </Card>
         )}
 
-        {/* --- Segurança --- */}
         {activeTab === 'security' && (
           <Card>
             <CardHeader>
@@ -248,11 +263,25 @@ export default function Settings() {
                   onClick={() => {
                     if (window.confirm('Tem certeza? Esta ação não pode ser desfeita.')) {
                       localStorage.removeItem('finance-store');
+                      localStorage.removeItem('finance-store-owner');
                       window.location.reload();
                     }
                   }}
                 >
                   Limpar Dados
+                </Button>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                <h3 className="text-sm font-medium text-red-600 dark:text-red-400">Excluir minha conta e dados (LGPD)</h3>
+                <p className="text-xs text-slate-500">
+                  Apaga permanentemente sua conta, movimentações, agenda e vínculo no WhatsApp.
+                </p>
+                {erroExclusao && (
+                  <p role="alert" className="text-xs text-red-600 dark:text-red-400">{erroExclusao}</p>
+                )}
+                <Button variant="danger" onClick={handleExcluirConta} disabled={excluindo}>
+                  {excluindo ? 'Excluindo...' : 'Excluir minha conta'}
                 </Button>
               </div>
             </CardContent>

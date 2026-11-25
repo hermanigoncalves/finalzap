@@ -16,7 +16,7 @@ export interface CreditCard {
   availableLimit: number;
   closingDay: number;
   dueDay: number;
-  network: string; // Visa, Mastercard, etc.
+  network: string;
   color: string;
 }
 
@@ -131,40 +131,32 @@ interface AppState {
   userSettings: UserSettings;
   creditCards: CreditCard[];
 
-  // Credit Cards
   addCreditCard: (card: CreditCard) => void;
   updateCreditCard: (id: string, updates: Partial<Omit<CreditCard, 'id'>>) => void;
   deleteCreditCard: (id: string) => void;
 
-  // Accounts
   addAccount: (acc: Account) => void;
   updateAccount: (id: string, updates: Partial<Omit<Account, 'id'>>) => void;
   deleteAccount: (id: string) => void;
 
-  // Transactions
   addTransaction: (tx: Omit<Transaction, 'id'>) => void;
   deleteTransaction: (id: string) => void;
 
-  // Fixed Transactions
   addFixedTransaction: (ft: Omit<FixedTransaction, 'id'>) => void;
   toggleFixedStatus: (id: string) => void;
   marcarContaPaga: (id: string) => void;
 
-  // Investments
   addInvestment: (inv: Omit<Investment, 'id'>) => void;
   updateInvestment: (id: string, updates: Partial<Omit<Investment, 'id'>>) => void;
   deleteInvestment: (id: string) => void;
 
-  // Savings Goals
   addSavingsGoal: (goal: Omit<SavingsGoal, 'id' | 'currentAmount'>) => void;
   updateSavingsGoal: (id: string, updates: Partial<Omit<SavingsGoal, 'id'>>) => void;
   deleteSavingsGoal: (id: string) => void;
 
-  // Savings Contributions
   addSavingsContribution: (contribution: Omit<SavingsContribution, 'id'>) => void;
   deleteSavingsContribution: (id: string) => void;
 
-  // Settings
   updateSettings: (updates: Partial<UserSettings>) => void;
 }
 
@@ -233,12 +225,10 @@ export const useStore = create<AppState>()(
       fixedTransactions: [],
       creditCards: [],
 
-      // Credit Cards
       addCreditCard: (card) => set((s) => ({ creditCards: [...s.creditCards, card] })),
       updateCreditCard: (id, updates) => set((s) => ({ creditCards: s.creditCards.map(c => c.id === id ? { ...c, ...updates } : c) })),
       deleteCreditCard: (id) => set((s) => ({ creditCards: s.creditCards.filter(c => c.id !== id) })),
 
-      // Accounts
       addAccount: (acc) =>
         set((s) => ({ accounts: [...s.accounts, acc] })),
 
@@ -252,7 +242,6 @@ export const useStore = create<AppState>()(
           fixedTransactions: s.fixedTransactions.filter(ft => ft.accountId !== id),
         })),
 
-      // Transactions
       addTransaction: (tx) =>
         set((s) => ({
           transactions: [{ ...tx, id: uuidv4(), fonte: tx.fonte || 'painel' }, ...s.transactions],
@@ -269,7 +258,6 @@ export const useStore = create<AppState>()(
           };
         }),
 
-      // Fixed transactions
       addFixedTransaction: (ft) =>
         set((s) => ({ fixedTransactions: [...s.fixedTransactions, { ...ft, id: uuidv4() }] })),
 
@@ -304,7 +292,6 @@ export const useStore = create<AppState>()(
           };
         }),
 
-      // Investments
       addInvestment: (inv) =>
         set((s) => ({ investments: [...s.investments, { ...inv, id: uuidv4() }] })),
 
@@ -314,7 +301,6 @@ export const useStore = create<AppState>()(
       deleteInvestment: (id) =>
         set((s) => ({ investments: s.investments.filter(i => i.id !== id) })),
 
-      // Savings Goals
       addSavingsGoal: (goal) =>
         set((s) => ({ savingsGoals: [...s.savingsGoals, { ...goal, id: uuidv4(), currentAmount: 0 }] })),
       
@@ -327,7 +313,6 @@ export const useStore = create<AppState>()(
           savingsContributions: s.savingsContributions.filter(c => c.goalId !== id),
         })),
 
-      // Savings Contributions
       addSavingsContribution: (contribution) =>
         set((s) => {
           const newContribution = { ...contribution, id: uuidv4() };
@@ -355,25 +340,22 @@ export const useStore = create<AppState>()(
           };
         }),
 
-      // Settings
       updateSettings: (updates) =>
         set((s) => ({ userSettings: { ...s.userSettings, ...updates } })),
     }),
     {
       name: 'finance-store',
-      // Transações e contas a pagar vêm do Supabase e as categorias do código: só o resto vai ao localStorage.
       partialize: (s) => ({
-        accounts: s.accounts,
-        investments: s.investments,
-        savingsGoals: s.savingsGoals,
-        savingsContributions: s.savingsContributions,
         userSettings: s.userSettings,
-        creditCards: s.creditCards,
       }),
-      // v0 gravava tudo: descarta histórico e lista de categorias antiga salvos por versões anteriores.
-      version: 1,
+      version: 2,
       migrate: (salvo) => {
         const s = { ...(salvo as Record<string, unknown>) };
+        delete s.accounts;
+        delete s.investments;
+        delete s.savingsGoals;
+        delete s.savingsContributions;
+        delete s.creditCards;
         delete s.transactions;
         delete s.fixedTransactions;
         delete s.categories;

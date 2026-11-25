@@ -3,7 +3,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import DashboardLayout from './layouts/DashboardLayout';
 import { useAuth } from './hooks/useAuth';
 import AdminGuard from './components/AdminGuard';
-import { resolverPerfilUsuario, type PerfilUsuario } from './lib/financeService';
+import { resolverPerfilUsuario, verificarMinhaAssinaturaAtiva, type PerfilUsuario } from './lib/financeService';
 import LoginPage from './pages/Login';
 import VincularWhatsApp from './components/VincularWhatsApp';
 import EscolherModo from './components/EscolherModo';
@@ -14,6 +14,7 @@ const Transactions      = lazy(() => import('./pages/Transactions'));
 const FixedTransactions = lazy(() => import('./pages/FixedTransactions'));
 const Settings          = lazy(() => import('./pages/Settings'));
 const Budget            = lazy(() => import('./pages/Budget'));
+const Agenda            = lazy(() => import('./features/agenda').then((m) => ({ default: m.PaginaAgenda })));
 const DicasEconomia     = lazy(() => import('./pages/DicasEconomia'));
 const Administrador     = lazy(() => import('./pages/AssinaturasAdmin'));
 const DefinirSenha      = lazy(() => import('./pages/DefinirSenha'));
@@ -47,18 +48,17 @@ const MensagemConta = ({ titulo, texto }: { titulo: string; texto: string }) => 
   );
 };
 
-// Inner component so hooks run inside BrowserRouter
 function AuthGate() {
   const { user, loading: authLoading, signOut } = useAuth();
 
   const navigate = useNavigate();
   const { pathname } = useLocation();
 
-  // Descobre o perfil (e o papel) uma vez por usuário; o perfil fica em cache no financeService.
-  // undefined = carregando, null = autenticado sem linha em perfis.
   const userId = user?.id ?? null;
   const [perfil, setPerfil] = useState<PerfilUsuario | null | undefined>(undefined);
   const [erroPerfil, setErroPerfil] = useState(false);
+  const [assinaturaAtiva, setAssinaturaAtiva] = useState<boolean | undefined>(undefined);
+  const [erroAssinatura, setErroAssinatura] = useState(false);
   const recarregarPerfil = useCallback(() => {
     resolverPerfilUsuario()
       .then((p) => { setPerfil(p); setErroPerfil(false); })
@@ -67,20 +67,31 @@ function AuthGate() {
   useEffect(() => {
     if (userId) recarregarPerfil();
   }, [userId, recarregarPerfil]);
+  useEffect(() => {
+    if (!perfil || perfil.role === 'admin') return;
+    let ativo = true;
+    verificarMinhaAssinaturaAtiva(perfil.telefone)
+      .then((ok) => {
+        if (!ativo) return;
+        setAssinaturaAtiva(ok);
+        setErroAssinatura(false);
+      })
+      .catch(() => {
+        if (!ativo) return;
+        setErroAssinatura(true);
+      });
+    return () => { ativo = false; };
+  }, [perfil]);
   const isAdmin = perfil ? perfil.role === 'admin' : null;
 
-  // Admin escolhe no login entrar como administrador ou como usuário.
   const [modo, setModo] = useState(lerModo);
 
-  // No modo administrador só vale a área de administração.
   useEffect(() => {
     if (isAdmin && modo === 'admin' && pathname !== '/admin') navigate('/admin', { replace: true });
   }, [isAdmin, modo, pathname, navigate]);
 
-  // Still checking if user is logged in
   if (authLoading) return <Spinner />;
 
-  // Not authenticated — show login
   if (!user) return <LoginPage />;
 
   if (erroPerfil) {
@@ -88,8 +99,43 @@ function AuthGate() {
   }
   if (perfil === undefined) return <Spinner />;
   if (perfil === null) {
-    // Autenticado sem perfil (ex.: compra sem telefone): vincula o WhatsApp por código.
     return <VincularWhatsApp aoVincular={recarregarPerfil} />;
+  }
+
+  if (perfil.role !== 'admin') {
+    if (erroAssinatura) {
+      return <MensagemConta titulo="Não foi possível verificar sua assinatura" texto="Verifique sua conexão e recarregue a página." />;
+    }
+    if (assinaturaAtiva === undefined) return <Spinner />;
+    if (!assinaturaAtiva) {
+      return (
+        <div className="flex items-center justify-center h-screen bg-slate-900 p-6">
+          <div className="max-w-md text-center space-y-4 text-slate-200">
+            <h1 className="text-xl font-bold text-white">Assinatura inativa ou vencida</h1>
+            <p className="text-sm text-slate-400">
+              Sua assinatura não está ativa no momento. Assine ou renove para continuar acessando o painel.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <a
+                href="https://pay.hotmart.com/N108346496T"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-medium"
+              >
+                Assinar / Renovar
+              </a>
+              <button
+                type="button"
+                onClick={signOut}
+                className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium cursor-pointer"
+              >
+                Sair
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
   }
 
   if (isAdmin && !modo) {
@@ -109,6 +155,7 @@ function AuthGate() {
         <Route path="dashboard"          element={<S><Dashboard /></S>} />
         <Route path="transactions"       element={<S><Transactions /></S>} />
         <Route path="fixed"              element={<S><FixedTransactions /></S>} />
+        <Route path="agenda"             element={<S><Agenda /></S>} />
         <Route path="budget"             element={<S><Budget /></S>} />
         <Route path="admin"              element={<AdminGuard><S><Administrador /></S></AdminGuard>} />
         <Route path="dicas-economia"      element={<S><DicasEconomia /></S>} />
@@ -119,7 +166,6 @@ function AuthGate() {
   );
 }
 
-// /definir-senha vem antes do AuthGate: o cliente chega pelo link do convite, sem perfil nem login prévio.
 function RotaRaiz() {
   const { pathname } = useLocation();
   if (pathname === '/definir-senha') {

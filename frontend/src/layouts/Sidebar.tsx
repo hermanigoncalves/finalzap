@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   ArrowLeftRight,
   Calendar,
+  CalendarClock,
   Target,
   Settings,
   X,
@@ -12,6 +13,7 @@ import {
   CreditCard,
   LogOut,
   Repeat,
+  Smartphone,
 } from 'lucide-react';
 import { cn } from '../components/ui';
 import { useStore } from '../store/useStore';
@@ -27,12 +29,14 @@ const navItemsAdmin = [
   { name: 'Assinaturas (Hotmart)',        path: '/admin?aba=assinaturas', icon: Wallet     },
   { name: 'Tokens / Uso (OpenAI • WhatsApp)', path: '/admin?aba=tokens',     icon: Bot        },
   { name: 'Custos Fixos',                 path: '/admin?aba=custos',      icon: CreditCard },
+  { name: 'Conexão WhatsApp',             path: '/admin?aba=whatsapp',    icon: Smartphone },
 ];
 
 const navItemsBase = [
   { name: 'Visão geral',   path: '/dashboard',          icon: LayoutDashboard },
   { name: 'Transações',    path: '/transactions',       icon: ArrowLeftRight  },
   { name: 'Contas a pagar',   path: '/fixed',              icon: Calendar        },
+  { name: 'Agenda',           path: '/agenda',             icon: CalendarClock   },
   { name: 'Orçamento',     path: '/budget',             icon: Target          },
   { name: 'Dicas',         path: '/dicas-economia',     icon: Lightbulb       },
 ];

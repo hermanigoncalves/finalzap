@@ -2,10 +2,6 @@ import { supabase } from './supabase';
 import { hojeISO, mesAtual, somarDias, vencimentosMensais } from './datas';
 import { chamarMarcarContaPaga, type ResultadoContaPaga } from './contaPaga';
 
-/* ------------------------------------------------------------------ */
-/* Tipos alinhados com o schema FINALZAP (Supabase / snake_case)      */
-/* ------------------------------------------------------------------ */
-
 export type TipoMovimentacao = 'receita' | 'despesa';
 
 export interface Movimentacao {
@@ -16,8 +12,8 @@ export interface Movimentacao {
   moeda: string;
   categoria: string;
   descricao: string;
-  data: string;        // YYYY-MM-DD
-  mes: string;         // YYYY-MM
+  data: string;
+  mes: string;
   fonte: string;
   idempotency_key?: string;
   created_at: string;
@@ -40,7 +36,7 @@ export interface ContaAPagar {
   descricao: string;
   valor: number;
   categoria: string;
-  vencimento: string;  // YYYY-MM-DD
+  vencimento: string;
   status: 'pendente' | 'paga' | 'cancelada';
   pago_em?: string;
   movimentacao_id?: string;
@@ -70,10 +66,6 @@ export interface ResumoMensal {
   saldo: number;
 }
 
-/* ------------------------------------------------------------------ */
-/* Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
 const MOEDA_PADRAO = 'BRL';
 
 function validarValor(valor: number): void {
@@ -82,12 +74,6 @@ function validarValor(valor: number): void {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Telefone do usuário logado                                         */
-/* ------------------------------------------------------------------ */
-
-// Cache do perfil por usuário: várias telas pedem o perfil ao mesmo tempo e
-// cada chamada a getUser() disputa o lock de autenticação do supabase-js.
 let perfilEmCache: { userId: string; promessa: Promise<PerfilUsuario | null> } | null = null;
 
 export function limparCachePerfil(): void {
@@ -121,39 +107,27 @@ export async function resolverPerfilUsuario(): Promise<PerfilUsuario | null> {
     if (error) throw error;
     if (perfil) return perfil as PerfilUsuario;
 
-    // Login novo (ex.: Google) de quem já comprou: liga o perfil órfão pelo e-mail verificado e relê.
     const { data: vinculou } = await supabase.rpc('vincular_perfil_por_email');
     if (vinculou !== true) return null;
     const { data: depois } = await supabase.from('perfis').select('*').eq('auth_id', userId).maybeSingle();
     return (depois ?? null) as PerfilUsuario | null;
   })();
   perfilEmCache = { userId, promessa };
-  // Falha ou perfil ausente não fica em cache (pode ser criado depois).
   promessa.then((p) => { if (!p && perfilEmCache?.promessa === promessa) perfilEmCache = null; })
     .catch(() => { if (perfilEmCache?.promessa === promessa) perfilEmCache = null; });
   return promessa;
 }
 
-/**
- * Resolve o telefone do usuário autenticado a partir da tabela perfis.
- * Retorna null se não houver telefone cadastrado.
- */
 export async function resolverTelefoneUsuario(): Promise<string | null> {
   const perfil = await resolverPerfilUsuario();
   return perfil?.telefone ?? null;
 }
 
-/**
- * Verifica se o usuário logado tem role de admin.
- */
-/** Salva só nome/email do perfil (telefone é imutável pelo painel; a RLS também só permite essas colunas). */
-/** Devolve true quando o e-mail de LOGIN mudou e o Supabase pediu confirmação por link. */
 export async function atualizarPerfil(dados: { nome: string; email: string }): Promise<boolean> {
   const perfil = await resolverPerfilUsuario();
   if (!perfil) throw new Error('Perfil não encontrado.');
   const email = dados.email.trim();
 
-  // O e-mail de login vive no Supabase Auth: sem isto o perfil mostraria um e-mail que não loga.
   let confirmarEmail = false;
   const { data: { user } } = await supabase.auth.getUser();
   if (user?.email && user.email.toLowerCase() !== email.toLowerCase()) {
@@ -173,9 +147,33 @@ export async function ehUsuarioAdmin(): Promise<boolean> {
   return perfil?.role === 'admin';
 }
 
-/* ------------------------------------------------------------------ */
-/* 1. Registrar movimentação (receita / despesa)                      */
-/* ------------------------------------------------------------------ */
+export async function verificarMinhaAssinaturaAtiva(telefone: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('verificar_assinatura_ativa', { p_telefone: telefone });
+  if (error) throw error;
+  return data === true;
+}
+
+export async function excluirMinhaConta(): Promise<{ ok: boolean; mensagem: string }> {
+  const { data, error } = await supabase.rpc('excluir_minha_conta');
+  if (error) throw error;
+  if (typeof data === 'boolean') {
+    return {
+      ok: data,
+      mensagem: data ? 'Conta e dados excluídos com sucesso.' : 'Não foi possível excluir sua conta.',
+    };
+  }
+  const obj = typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+  const ok = typeof obj.ok === 'boolean' ? obj.ok : true;
+  return {
+    ok,
+    mensagem:
+      typeof obj.mensagem === 'string' && obj.mensagem
+        ? obj.mensagem
+        : ok
+          ? 'Conta e dados excluídos com sucesso.'
+          : 'Não foi possível excluir sua conta.',
+  };
+}
 
 export interface RegistrarMovimentacaoInput {
   tipo: TipoMovimentacao;
@@ -187,11 +185,6 @@ export interface RegistrarMovimentacaoInput {
   telefone?: string;
 }
 
-/**
- * REGRA OBRIGATÓRIA do prompt: quando o cliente informar uma receita ou
- * despesa com os dados necessários, usa registrar_movimentacao para salvar
- * no banco de dados. Só confirma depois que a ferramenta retornar sucesso.
- */
 export async function registrar_movimentacao(
   input: RegistrarMovimentacaoInput
 ): Promise<Movimentacao> {
@@ -200,8 +193,6 @@ export async function registrar_movimentacao(
     throw new Error('Usuário não identificado. Cadastre seu telefone no perfil.');
   }
 
-  // Regra do prompt: enquanto não houver armazenamento separado por moeda,
-  // não registre transações em dólares. Trabalhamos apenas em BRL.
   if (input.valor === undefined || input.valor === null) {
     throw new Error('Informe o valor antes de registrar.');
   }
@@ -217,7 +208,6 @@ export async function registrar_movimentacao(
   const data = input.data || hojeISO();
   const mes = data.slice(0, 7);
   const fonte = input.fonte || 'painel';
-  // Uma chave por envio: dois gastos iguais no mesmo dia são lançamentos legítimos.
   const idempotencyKey = `${telefone}|${globalThis.crypto.randomUUID()}`;
 
   const { data: registro, error } = await supabase
@@ -241,7 +231,6 @@ export async function registrar_movimentacao(
   return registro as Movimentacao;
 }
 
-/** Remove uma movimentação do usuário (a RLS também exige que seja dele). */
 export async function remover_movimentacao(id: string): Promise<void> {
   const telefone = await resolverTelefoneUsuario();
   if (!telefone) throw new Error('Usuário não identificado.');
@@ -254,10 +243,6 @@ export async function remover_movimentacao(id: string): Promise<void> {
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('Movimentação não encontrada.');
 }
-
-/* ------------------------------------------------------------------ */
-/* 2. Consultar movimentações + saldo                                 */
-/* ------------------------------------------------------------------ */
 
 export interface ConsultarMovimentacoesFiltro {
   telefone?: string;
@@ -280,7 +265,6 @@ export async function consultar_movimentacoes(
       .from('movimentacoes')
       .select('*')
       .eq('telefone', telefone)
-      // desempate estável: sem ele, linhas do mesmo dia podem repetir ou faltar entre páginas
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
       .order('id');
@@ -296,7 +280,6 @@ export async function consultar_movimentacoes(
     return (data || []) as Movimentacao[];
   }
 
-  // Sem limite: lê todas as páginas (o PostgREST corta em 1000 linhas e o saldo ficaria errado).
   const todas: Movimentacao[] = [];
   for (let de = 0; ; de += PAGINA_MOVIMENTACOES) {
     const { data, error } = await montar().range(de, de + PAGINA_MOVIMENTACOES - 1);
@@ -323,10 +306,6 @@ export async function consultar_saldo(
   }
   return { saldo: receitas - despesas, totalReceitas: receitas, totalDespesas: despesas };
 }
-
-/* ------------------------------------------------------------------ */
-/* 3. Resumo mensal de receitas e despesas                            */
-/* ------------------------------------------------------------------ */
 
 export async function consultar_resumo_mensal(
   telefone?: string,
@@ -355,7 +334,7 @@ export async function consultar_resumo_varios_meses(
   const t = telefone || (await resolverTelefoneUsuario());
   if (!t) return [];
 
-  const data = await consultar_movimentacoes({ telefone: t }); // paginado: sem corte em 1000 linhas
+  const data = await consultar_movimentacoes({ telefone: t });
 
   const porMes = new Map<string, { receitas: number; despesas: number }>();
   for (const r of (data || [])) {
@@ -375,10 +354,6 @@ export async function consultar_resumo_varios_meses(
       saldo: v.receitas - v.despesas,
     }));
 }
-
-/* ------------------------------------------------------------------ */
-/* 4. Orçamento por categoria                                         */
-/* ------------------------------------------------------------------ */
 
 export async function consultar_orcamentos(
   telefone?: string,
@@ -435,21 +410,16 @@ export async function remover_orcamento(
   const t = telefone || (await resolverTelefoneUsuario());
   if (!t) return;
   let q = supabase.from('orcamentos').delete().eq('telefone', t).eq('categoria', categoria);
-  // .match({mes: null}) viraria mes=eq.null (texto), nunca IS NULL
   q = mes ? q.eq('mes', mes) : q.is('mes', null);
   const { error } = await q;
   if (error) throw error;
 }
 
-/* ------------------------------------------------------------------ */
-/* 5. Contas a pagar                                                    */
-/* ------------------------------------------------------------------ */
-
 export interface CadastrarContaAPagarInput {
   descricao: string;
   valor: number;
   categoria: string;
-  vencimento: string; // YYYY-MM-DD
+  vencimento: string;
   telefone?: string;
 }
 
@@ -500,7 +470,6 @@ export async function contas_vencendo(
   const t = telefone || (await resolverTelefoneUsuario());
   if (!t) return [];
 
-  // Datas como texto YYYY-MM-DD (ordenam como string) no fuso de São Paulo.
   const hoje = hojeISO();
   const limite = somarDias(hoje, dias);
 
@@ -511,10 +480,6 @@ export async function contas_vencendo(
   });
 }
 
-/* ------------------------------------------------------------------ */
-/* 6. Marcar conta como paga + registrar despesa                      */
-/* ------------------------------------------------------------------ */
-
 export async function marcar_conta_paga(
   contaId: string,
   telefone?: string
@@ -524,10 +489,6 @@ export async function marcar_conta_paga(
 
   return chamarMarcarContaPaga((fn, args) => supabase.rpc(fn, args), contaId, t);
 }
-
-/* ------------------------------------------------------------------ */
-/* 7. Dicas simples de economia                                       */
-/* ------------------------------------------------------------------ */
 
 export interface DicaEconomia {
   titulo: string;
@@ -578,7 +539,6 @@ export function gerar_dicas_economia(
 ): DicaEconomia[] {
   const dicas: DicaEconomia[] = [...DICAS_PADRAO];
 
-  // Dica contextual: categoria que estourou o orçamento
   for (const orc of orcamentos) {
     const gasto = gastosPorCategoria[orc.categoria] ?? 0;
     if (orc.limite_mensal > 0 && gasto >= orc.limite_mensal) {
@@ -601,11 +561,6 @@ export function gerar_dicas_economia(
   return dicas.slice(0, 8);
 }
 
-/* ------------------------------------------------------------------ */
-/* 8. Assinaturas (Hotmart) - controle de vendas e recebimentos       */
-/* ------------------------------------------------------------------ */
-
-/** <input type=date> manda YYYY-MM-DD (meia-noite UTC = 21h do dia anterior em Brasília): vale até 23:59 de SP. */
 const fimDoDiaSP = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T23:59:59-03:00` : d);
 
 export interface TipoAssinatura {
@@ -616,8 +571,8 @@ export interface TipoAssinatura {
   hotmart_id: string;
   plano: string;
   status: 'Ativo' | 'Inativo' | 'Cancelado' | 'Inadimplente';
-  data_inicio: string;      // quando vendeu
-  data_vencimento: string;  // quando vai receber / vence
+  data_inicio: string;
+  data_vencimento: string;
   metodo_pagamento: string;
   created_at: string;
   updated_at: string;
@@ -662,7 +617,6 @@ export async function listar_assinaturas(
   return (data || []) as TipoAssinatura[];
 }
 
-/** Painel admin: todas as assinaturas (a RLS só libera para role = admin). */
 export async function listar_todas_assinaturas(): Promise<TipoAssinatura[]> {
   const { data, error } = await supabase
     .from('assinaturas')
@@ -711,7 +665,6 @@ export async function atualizar_assinatura(
   if (input.hotmart_id !== undefined) updates.hotmart_id = input.hotmart_id.trim();
   if (input.plano !== undefined) updates.plano = input.plano;
   if (input.status !== undefined) updates.status = input.status;
-  // data vazia vira NULL (assinaturas do webhook nascem sem essas datas)
   if (input.data_inicio !== undefined) updates.data_inicio = input.data_inicio || null;
   if (input.data_vencimento !== undefined) updates.data_vencimento = input.data_vencimento ? fimDoDiaSP(input.data_vencimento) : null;
   if (input.metodo_pagamento !== undefined)
@@ -733,24 +686,20 @@ export async function remover_assinatura(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/* ------------------------------------------------------------------ */
-/* 9. Tokens / Uso de serviços (OpenAI, WhatsApp, Pluggy, etc.)       */
-/* ------------------------------------------------------------------ */
-
 export type ServicoUso = 'openai' | 'whatsapp' | 'pluggy' | 'outro';
 
 export interface UsoServico {
   id: string;
   telefone: string;
   servico: ServicoUso;
-  modelo?: string;           // ex: gpt-4o-mini, whisper-1, evolution-api
+  modelo?: string;
   tokens_entrada?: number;
   tokens_saida?: number;
   mensagens_enviadas?: number;
   mensagens_recebidas?: number;
   custo_usd?: number;
   custo_brl?: number;
-  data: string;              // YYYY-MM-DD
+  data: string;
   created_at: string;
 }
 
@@ -781,10 +730,7 @@ export async function listar_uso_servico(
   return (data || []) as UsoServico[];
 }
 
-/** Painel admin: uso de serviços de todos os clientes (RLS restringe a admin). */
 export async function listar_todo_uso_servico(inicio: string, fim: string): Promise<UsoServico[]> {
-  // O resumo de custos soma essas linhas, então não pode truncar.
-  // shortcut: teto de 1000 linhas do PostgREST, trocar por agregação em RPC se o período passar disso.
   const { data, error } = await supabase
     .from('uso_servico')
     .select('*')
@@ -849,10 +795,6 @@ export async function resumo_uso_servico(
   return { total_custo_brl: totalCusto, total_tokens: totalTokens, por_servico: porServico };
 }
 
-/* ------------------------------------------------------------------ */
-/* 10. Custos fixos do negócio                                        */
-/* ------------------------------------------------------------------ */
-
 export type TipoCustoFixo = 'servidor' | 'ferramenta' | 'marketing' | 'telefone' | 'outro';
 
 export interface CustoFixo {
@@ -861,7 +803,7 @@ export interface CustoFixo {
   descricao: string;
   valor: number;
   categoria: TipoCustoFixo;
-  vencimento: string; // YYYY-MM-DD
+  vencimento: string;
   status: 'pendente' | 'pago' | 'cancelado';
   pago_em?: string;
   created_at: string;
@@ -891,7 +833,6 @@ export async function listar_custos_fixos(
   return (data || []) as CustoFixo[];
 }
 
-/** Painel admin: custos do negócio, sem filtro por telefone (RLS restringe a admin). */
 export async function listar_todos_custos_fixos(): Promise<CustoFixo[]> {
   const { data, error } = await supabase
     .from('custos_fixos')
@@ -927,7 +868,6 @@ export async function cadastrar_custo_fixo(
   return data as CustoFixo;
 }
 
-/** Custo que repete todo mês: cria `meses` linhas (uma por vencimento) num único insert, atômico. A 1ª usa o status informado; as demais entram pendentes. */
 export async function cadastrar_custo_fixo_recorrente(
   input: CadastrarCustoFixoInput,
   meses: number
@@ -1002,11 +942,8 @@ export function formatar_moeda_brl(valor: number): string {
   }).format(valor);
 }
 
-// ---------------------------------------------------------------------------
-// Dashboard do administrador (RPC resumo_admin_mensal; a RLS limita ao admin)
-// ---------------------------------------------------------------------------
 export interface ResumoAdminMes {
-  mes: string; // YYYY-MM
+  mes: string;
   entradas: number;
   qtd_entradas: number;
   taxas_hotmart: number;
@@ -1031,7 +968,6 @@ export async function resumo_admin_mensal(meses = 6): Promise<ResumoAdminMes[]> 
 
 export type ResumoAdminPeriodo = Omit<ResumoAdminMes, 'mes'>;
 
-/** Soma do dashboard num intervalo de datas (YYYY-MM-DD, início e fim inclusivos). */
 export async function resumo_admin_periodo(inicio: string, fim: string): Promise<ResumoAdminPeriodo> {
   const { data, error } = await supabase.rpc('resumo_admin_periodo', { p_inicio: inicio, p_fim: fim });
   if (error) throw error;
