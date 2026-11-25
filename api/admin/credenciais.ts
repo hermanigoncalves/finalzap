@@ -1,10 +1,6 @@
 import { aplicarCors } from '../../lib/serverEnv';
-import { CHAVES_CREDENCIAL, exigirAdmin, type ChaveCredencial } from '../../lib/admin/credenciais';
+import { CHAVES_CREDENCIAL, cifrarValor, decifrarValor, exigirAdmin, type ChaveCredencial } from '../../lib/admin/credenciais';
 
-/**
- * GET: quais credenciais estão configuradas (só os 4 últimos caracteres, nunca o valor).
- * PUT { chave, valor }: salva; valor vazio apaga. Somente administrador.
- */
 export default async function handler(req: any, res: any) {
   aplicarCors(req, res, 'GET, PUT, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(204).end();
@@ -21,7 +17,7 @@ export default async function handler(req: any, res: any) {
       if (texto.length > 2000) return res.status(400).json({ error: 'Valor longo demais.' });
 
       const { error } = texto
-        ? await supabase.from('credenciais_servico').upsert({ chave, valor: texto, atualizado_em: new Date().toISOString() })
+        ? await supabase.from('credenciais_servico').upsert({ chave, valor: cifrarValor(texto), atualizado_em: new Date().toISOString() })
         : await supabase.from('credenciais_servico').delete().eq('chave', chave);
       if (error) throw error;
     }
@@ -30,7 +26,8 @@ export default async function handler(req: any, res: any) {
     if (error) throw error;
     const salvas = new Map((data ?? []).map((l) => [l.chave as ChaveCredencial, l.valor as string]));
     const credenciais = CHAVES_CREDENCIAL.map((chave) => {
-      const valor = salvas.get(chave) ?? process.env[chave];
+      const bruto = salvas.get(chave) || process.env[chave];
+      const valor = bruto ? decifrarValor(bruto) : undefined;
       return { chave, configurada: !!valor, final: valor ? valor.slice(-4) : null };
     });
     return res.status(200).json({ credenciais });

@@ -23,6 +23,11 @@ const cadeia = [
   '20261119000001_endurece_funcoes_indices.sql',
   '20261119000002_chave_conta_do_dono.sql',
   '20261119000003_vinculo_whatsapp.sql',
+  '20261119000004_contas_idempotency.sql',
+  '20261119000005_recorrentes_idempotency.sql',
+  '20261123000001_compromissos.sql',
+  '20261125000001_credenciais_waha.sql',
+  '20261125000002_hardening_producao.sql',
 ];
 
 let PGlite;
@@ -59,12 +64,17 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
       create publication supabase_realtime;`);
   });
 
-  it('a cadeia roda sem erro e pode rodar duas vezes', async () => {
+  it('a cadeia roda sem erro e a nova migração pode rodar duas vezes seguidas', async () => {
+    const preHardening = cadeia.slice(0, -1);
+    const hardening = cadeia[cadeia.length - 1];
     for (let rodada = 0; rodada < 2; rodada++) {
-      for (const f of cadeia) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
+      for (const f of preHardening) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
+    }
+    for (let rodada = 0; rodada < 2; rodada++) {
+      await db.exec(fs.readFileSync(path.join(dir, hardening), 'utf8'));
     }
     const t = await q(`select count(*)::int c from pg_tables where schemaname='public'`);
-    assert.equal(t[0].c, 13);
+    assert.equal(t[0].c, 14);
   });
 
   it('normaliza telefone BR', async () => {
@@ -300,7 +310,7 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
 
     await db.exec(`set role authenticated; set request.jwt.claim.sub='${USR}'`);
     assert.equal((await q(`select count(*)::int c from public.entradas`))[0].c, 0); // RLS: cliente não vê
-    assert.equal(Number((await q(`select sum(entradas) s from public.resumo_admin_mensal(6)`))[0].s), 0);
+    await assert.rejects(() => q(`select * from public.resumo_admin_mensal(6)`), /Acesso negado|42501/i);
 
     await db.exec(`set request.jwt.claim.sub='${ADM}'`);
     const linhas = await q(`select * from public.resumo_admin_mensal(6)`);
@@ -412,5 +422,102 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     await db.exec('set role service_role');
     assert.equal((await rpc('vincular_whatsapp', '5511933330003', 'FZ-EXPIRADO')).success, false);
     await db.exec('reset role');
+  });
+
+  it('[DSEC-04] RLS bloqueia usuário após assinatura mudar para Inativo ou vencer', async () => {
+    await db.exec('reset role');
+    const U = 'c1c1c1c1-0000-4000-8000-000000000001';
+    const TEL = '5511922220001';
+    await q(`insert into auth.users(id,email,email_confirmed_at) values ('${U}','dsec04@x.com',now())`);
+    await q(`insert into public.perfis(auth_id,telefone,nome,email) values ('${U}','${TEL}','DSEC04','dsec04@x.com')`);
+    await q(`insert into public.assinaturas(telefone,nome,email,status,data_vencimento) values ('${TEL}','DSEC04','dsec04@x.com','Ativo',now()+interval '5 days')`);
+    await q(`insert into public.movimentacoes(telefone,tipo,valor,categoria,fonte) values ('${TEL}','despesa',10,'Mercado','painel')`);
+
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U}'`);
+    assert.equal((await q(`select count(*)::int c from public.movimentacoes`))[0].c, 1);
+
+    // Reembolso -> Inativo: bloqueia leitura e escrita
+    await db.exec('reset role');
+    await q(`update public.assinaturas set status='Inativo' where telefone='${TEL}'`);
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U}'`);
+    assert.equal((await q(`select count(*)::int c from public.movimentacoes`))[0].c, 0);
+    await assert.rejects(
+      () => db.exec(`insert into public.movimentacoes(telefone,tipo,valor,categoria,fonte) values ('${TEL}','despesa',15,'Mercado','painel')`),
+      /row-level security/,
+    );
+
+    // Vencida -> Ativo com data_vencimento no passado: também bloqueia
+    await db.exec('reset role');
+    await q(`update public.assinaturas set status='Ativo', data_vencimento=now()-interval '1 minute' where telefone='${TEL}'`);
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U}'`);
+    assert.equal((await q(`select count(*)::int c from public.movimentacoes`))[0].c, 0);
+    await assert.rejects(
+      () => db.exec(`insert into public.contas_a_pagar(telefone,descricao,valor,vencimento) values ('${TEL}','Luz',50,current_date)`),
+      /row-level security/,
+    );
+    await db.exec('reset role');
+  });
+
+  it('[DSEC-06] vincular_perfil_por_email() recusa perfil admin órfão', async () => {
+    await db.exec('reset role');
+    const U_ADM_ORFAO = 'c2c2c2c2-0000-4000-8000-000000000002';
+    await q(`insert into auth.users(id,email,email_confirmed_at) values ('${U_ADM_ORFAO}','adm-orfao@x.com',now())`);
+    await q(`insert into public.perfis(auth_id,telefone,nome,email,role) values (null,'5511922220002','Admin Orfao','adm-orfao@x.com','admin')`);
+
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U_ADM_ORFAO}'`);
+    assert.equal(await rpc('vincular_perfil_por_email'), false);
+    await db.exec('reset role');
+    assert.equal((await q(`select auth_id from public.perfis where telefone='5511922220002'`))[0].auth_id, null);
+  });
+
+  it('[DSEC-14] gerar_codigo_vinculo() recusa assinatura vencida', async () => {
+    await db.exec('reset role');
+    const U_VENC = 'c3c3c3c3-0000-4000-8000-000000000003';
+    await q(`insert into auth.users(id,email,email_confirmed_at) values ('${U_VENC}','vencido@vinculo.com',now())`);
+    await q(`insert into public.assinaturas(email,nome,status,data_vencimento) values ('vencido@vinculo.com','Vencido','Ativo',now()-interval '1 hour')`);
+
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U_VENC}'`);
+    assert.equal((await rpc('gerar_codigo_vinculo')).success, false);
+    await db.exec('reset role');
+  });
+
+  it('[DSEC-07] excluir_minha_conta() apaga registros do usuário, anonimiza perfil e recusa admin', async () => {
+    await db.exec('reset role');
+    const U_LGPD = 'c4c4c4c4-0000-4000-8000-000000000004';
+    const U_ADM_LGPD = 'c5c5c5c5-0000-4000-8000-000000000005';
+    const TEL_LGPD = '5511922220003';
+    const TEL_ADM = '5511922220004';
+    await q(`insert into auth.users(id,email,email_confirmed_at) values ('${U_LGPD}','lgpd@x.com',now()),('${U_ADM_LGPD}','adm-lgpd@x.com',now())`);
+    await q(`insert into public.perfis(auth_id,telefone,nome,email,role) values ('${U_LGPD}','${TEL_LGPD}','Usuario LGPD','lgpd@x.com','user'),('${U_ADM_LGPD}','${TEL_ADM}','Admin LGPD','adm-lgpd@x.com','admin')`);
+    await q(`insert into public.movimentacoes(telefone,tipo,valor,categoria) values ('${TEL_LGPD}','despesa',42,'Lazer')`);
+    await q(`insert into public.orcamentos(telefone,categoria,limite_mensal) values ('${TEL_LGPD}','Lazer',200)`);
+    await q(`insert into public.contas_a_pagar(telefone,descricao,valor,vencimento) values ('${TEL_LGPD}','Internet',100,current_date)`);
+    const contaId = (await q(`select id from public.contas_a_pagar where telefone='${TEL_LGPD}'`))[0].id;
+    await q(`insert into public.logs_lembrete(telefone,conta_id,tipo_lembrete,status) values ('${TEL_LGPD}','${contaId}','vencimento_proximo','enviado')`);
+    await q(`insert into public.lancamentos_recorrentes(telefone,tipo,valor,categoria,descricao,proxima_execucao) values ('${TEL_LGPD}','despesa',80,'Assinatura','Streaming',current_date)`);
+    await q(`insert into public.compromissos(telefone,titulo,inicio,fim) values ('${TEL_LGPD}','Reunião','2026-12-20T10:00:00-03:00','2026-12-20T11:00:00-03:00')`);
+    await q(`insert into public.vinculos_whatsapp(codigo,auth_id,expira_em) values ('FZ-LGPD0001','${U_LGPD}',now()+interval '30 minutes')`);
+
+    await db.exec('set role anon');
+    await assert.rejects(() => rpc('excluir_minha_conta'), /permission denied/);
+
+    await db.exec(`reset role; set role authenticated; set request.jwt.claim.sub='${U_LGPD}'`);
+    const res = await rpc('excluir_minha_conta');
+    assert.equal(res.success, true);
+
+    await db.exec('reset role');
+    for (const tbl of ['movimentacoes', 'orcamentos', 'contas_a_pagar', 'lancamentos_recorrentes', 'compromissos', 'logs_lembrete']) {
+      assert.equal((await q(`select count(*)::int c from public.${tbl} where telefone='${TEL_LGPD}'`))[0].c, 0, tbl);
+    }
+    assert.equal((await q(`select count(*)::int c from public.vinculos_whatsapp where auth_id='${U_LGPD}'`))[0].c, 0);
+    const p = (await q(`select nome, email, auth_id from public.perfis where telefone='${TEL_LGPD}'`))[0];
+    assert.deepEqual(p, { nome: 'Conta excluída', email: null, auth_id: null });
+
+    // Admin é recusado
+    await db.exec(`set role authenticated; set request.jwt.claim.sub='${U_ADM_LGPD}'`);
+    const resAdm = await rpc('excluir_minha_conta');
+    assert.equal(resAdm.success, false);
+    await db.exec('reset role');
+    assert.equal((await q(`select auth_id from public.perfis where telefone='${TEL_ADM}'`))[0].auth_id, U_ADM_LGPD);
   });
 });

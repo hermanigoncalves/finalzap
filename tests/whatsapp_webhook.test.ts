@@ -15,3 +15,9 @@ test('webhook confere assinatura ativa antes de chamar a OpenAI', () => {
   assert.match(src, /rpc\('verificar_assinatura_ativa'/);
   assert.ok(src.indexOf('verificar_assinatura_ativa') < src.indexOf('analisarMensagemFinanceira(rawText'));
 });
+
+test('webhook exige message_id string nao vazia com status 400 e sem fallback null', () => {
+  assert.match(src, /typeof message_id !== 'string' \|\| !message_id\.trim\(\)/);
+  assert.match(src, /status\(400\)\.json\(\{ error: 'Campo message_id é obrigatório\.' \}\)/);
+  assert.doesNotMatch(src, /p_idempotency_key:.*\?\s*`wa:.*\s*:\s*null/);
+});

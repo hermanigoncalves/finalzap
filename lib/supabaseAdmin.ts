@@ -1,6 +1,4 @@
-// Cliente Supabase com chave de SERVICO (ignora RLS) e adaptadores reais das Deps
-// da Hotmart. Uso exclusivo no servidor: nunca expor a chave ao navegador nem logar
-// chaves, tokens, e-mails ou telefones.
+// Cliente Supabase com chave de serviço (ignora RLS) e adaptadores Hotmart/Admin.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Deps } from './hotmart/processar';
 import {
@@ -25,8 +23,6 @@ export function criarClienteAdmin(): SupabaseClient {
   });
 }
 
-// O Supabase so gera o link (sem enviar e-mail); quem envia e o n8n, pelo webhook abaixo.
-// Convite para conta nova; se o e-mail ja tem conta, link de recuperacao (abre a mesma tela).
 async function enviarLinkPeloN8n(
   db: SupabaseClient,
   email: string,
@@ -35,6 +31,8 @@ async function enviarLinkPeloN8n(
 ): Promise<{ userId: string | null; tipo: 'convite' | 'redefinicao' }> {
   const url = process.env.N8N_EMAIL_WEBHOOK_URL;
   if (!url) throw new Error('N8N_EMAIL_WEBHOOK_URL ausente');
+  const segredo = process.env.N8N_EMAIL_WEBHOOK_SECRET;
+  if (!segredo || !segredo.trim()) throw new Error('N8N_EMAIL_WEBHOOK_SECRET ausente');
 
   let tipo: 'convite' | 'redefinicao' = 'convite';
   let r = await db.auth.admin.generateLink({
@@ -46,7 +44,8 @@ async function enviarLinkPeloN8n(
     tipo = 'redefinicao';
     r = await db.auth.admin.generateLink({ type: 'recovery', email, options: { redirectTo } });
   }
-  if (r.error || !r.data?.properties?.action_link) {
+  const actionLink = r.data?.properties?.action_link;
+  if (r.error || typeof actionLink !== 'string' || !actionLink.startsWith('https://')) {
     throw new Error(erroSeguro('Falha ao gerar link', r.error ?? {}));
   }
 
@@ -54,9 +53,9 @@ async function enviarLinkPeloN8n(
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-webhook-secret': process.env.N8N_EMAIL_WEBHOOK_SECRET ?? '',
+      'x-webhook-secret': segredo,
     },
-    body: JSON.stringify({ email, nome: nome ?? '', tipo, link: r.data.properties.action_link }),
+    body: JSON.stringify({ email, nome: nome ?? '', tipo, link: actionLink }),
     signal: AbortSignal.timeout(10000),
   });
   if (!resp.ok) throw new Error(`Falha ao enviar e-mail pelo n8n (HTTP ${resp.status})`);
@@ -64,8 +63,6 @@ async function enviarLinkPeloN8n(
 }
 
 export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
-  // Cria o perfil so se nao existir para este auth_id nem para este telefone.
-  // Nunca faz upsert: isso poderia trocar o auth_id de um perfil existente.
   async function garantirPerfil(
     authId: string,
     d: { email: string; nome: string; telefone: string },
@@ -80,7 +77,7 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
       .eq('telefone', d.telefone)
       .maybeSingle();
     if (porTelefone.error) throw new Error('Falha ao consultar perfil');
-    if (porTelefone.data) return 'conflito'; // pertence a outro auth_id
+    if (porTelefone.data) return 'conflito';
 
     const ins = await db.from('perfis').insert({
       auth_id: authId,
@@ -89,7 +86,7 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
       email: d.email,
       role: 'user',
     });
-    if (violacaoUnica(ins.error)) return 'conflito'; // corrida com outro processo
+    if (violacaoUnica(ins.error)) return 'conflito';
     if (ins.error) throw new Error('Falha ao criar perfil');
     return 'ok';
   }
@@ -97,7 +94,7 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
   return {
     async registrarEvento(chave, e) {
       const { error } = await db.from('hotmart_eventos').insert(linhaEvento(chave, e, e));
-      if (violacaoUnica(error)) return false; // ja visto
+      if (violacaoUnica(error)) return false;
       if (error) throw new Error(erroSeguro('Falha ao registrar evento', error));
       return true;
     },
@@ -122,10 +119,6 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
       };
     },
 
-    // Upsert condicional em dois passos (o PostgREST nao expressa "ON CONFLICT DO UPDATE
-    // WHERE" e evitamos RPC para nao exigir nova migracao):
-    // 1) insere se nao existe (ignora duplicado); 2) update filtrado pela ordem do evento,
-    // atomico no banco, entao eventos concorrentes nao regridem o estado.
     async gravarAssinatura(d) {
       await gravarAssinaturaCondicional(db, d);
     },
@@ -147,7 +140,6 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
       const { userId } = await enviarLinkPeloN8n(db, email, nome, `${appUrl}/definir-senha`);
       if (!userId) return;
       if (!telefone) {
-        // Sem telefone não há como vincular o perfil: avisa o admin em vez de calar.
         const { error: e3 } = await db
           .from('assinaturas')
           .update({ convite_erro: ERRO_SEM_TELEFONE })
@@ -158,7 +150,6 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
 
       const r = await garantirPerfil(userId, { email, nome, telefone });
       if (r === 'conflito') {
-        // O convite foi enviado; so sinaliza o conflito para revisao (sem dados pessoais).
         const { error: e2 } = await db
           .from('assinaturas')
           .update({ convite_erro: ERRO_TELEFONE_VINCULADO })
@@ -175,7 +166,6 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
           .update({ convite_enviado_em: new Date().toISOString() })
           .eq('hotmart_assinante_codigo', codigo);
         if (error) throw new Error(erroSeguro('Falha ao marcar convite', error));
-        // Limpa erro anterior, mas preserva o aviso de conflito de telefone.
         const { error: e2 } = await db
           .from('assinaturas')
           .update({ convite_erro: null })
@@ -194,8 +184,6 @@ export function criarDepsHotmart(db: SupabaseClient, appUrl: string): Deps {
   };
 }
 
-// Adaptadores reais do reenvio de convite pelo admin (chave de servico).
-// Mensagens de erro so com `erroSeguro`: nunca e-mail, token ou message do Auth.
 export function criarDepsReenvio(db: SupabaseClient, appUrl: string) {
   const redirectTo = `${appUrl}/definir-senha`;
   return {

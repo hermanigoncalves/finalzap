@@ -14,6 +14,19 @@ test('n8n C1: o agente lê o texto do nó Normalizar mensagem, não do item {ati
   assert.match(no('Assistente FINALZAP').parameters.text, /Normalizar mensagem/);
 });
 
+test('n8n onboarding: checagem de primeiro acesso antes do agente e ferramentas de recorrentes ligadas', () => {
+  const prox = (n: string) => fluxo.connections[n].main[0][0].node;
+  assert.equal(prox('Assinatura ativa?'), 'Recorrentes existentes');
+  assert.equal(prox('Recorrentes existentes'), 'Movimentações existentes');
+  assert.equal(prox('Movimentações existentes'), 'Tipo da mensagem');
+  for (const t of ['cadastrar_recorrente', 'consultar_recorrentes'])
+    assert.equal(fluxo.connections[t].ai_tool[0][0].node, 'Assistente FINALZAP');
+  const campos = no('cadastrar_recorrente').parameters.fieldsUi.fieldValues.map((f: { fieldId: string }) => f.fieldId);
+  for (const c of ['telefone', 'tipo', 'valor', 'categoria', 'descricao', 'frequencia', 'proxima_execucao', 'idempotency_key'])
+    assert.ok(campos.includes(c), c);
+  assert.match(no('Assistente FINALZAP').parameters.options.systemMessage, /Primeiro acesso deste cliente/);
+});
+
 test('n8n A11: log do lembrete envia tipo_lembrete e status (colunas NOT NULL)', () => {
   const campos = no('Registrar log do lembrete').parameters.fieldsUi.fieldValues.map((f: { fieldId: string }) => f.fieldId);
   assert.ok(campos.includes('tipo_lembrete') && campos.includes('status'));

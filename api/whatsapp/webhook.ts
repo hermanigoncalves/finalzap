@@ -1,11 +1,7 @@
 import { analisarMensagemFinanceira } from '../../lib/financeiro/analisador';
 import { clienteServico, segredoConfere } from '../../lib/serverEnv';
 
-/**
- * Webhook interno (servidor a servidor): texto financeiro -> OpenAI -> RPC registrar_movimentacao.
- * O canal de entrada oficial é a API da Meta tratada no n8n; este endpoint só grava por telefone.
- * Sem CORS: não é chamado por navegador. Segredo obrigatório (falha fechado).
- */
+/** Webhook interno: texto financeiro -> OpenAI -> RPC registrar_movimentacao. */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -26,12 +22,14 @@ export default async function handler(req: any, res: any) {
   if (typeof telefone !== 'string' || !telefone.trim()) {
     return res.status(400).json({ error: 'Campo telefone é obrigatório.' });
   }
+  if (typeof message_id !== 'string' || !message_id.trim()) {
+    return res.status(400).json({ error: 'Campo message_id é obrigatório.' });
+  }
 
   try {
     const supabase = clienteServico();
     const telefoneUso = telefone.slice(0, 30);
 
-    // Assinatura ativa (vencimento nulo conta como ativa) antes de gastar tokens da OpenAI.
     const { data: ativa, error: errAss } = await supabase.rpc('verificar_assinatura_ativa', { p_telefone: telefone });
     if (errAss) {
       console.error('[webhook] erro ao verificar assinatura:', errAss.code);
@@ -52,14 +50,13 @@ export default async function handler(req: any, res: any) {
       });
     });
 
-    // O telefone é normalizado e a idempotência tratada pela RPC (message_id = id da mensagem da Meta).
     const { data, error } = await supabase.rpc('registrar_movimentacao', {
       p_telefone: telefone,
       p_tipo: transacao.tipo,
       p_valor: transacao.valor,
       p_categoria: transacao.categoria,
       p_descricao: transacao.descricao,
-      p_idempotency_key: typeof message_id === 'string' && message_id ? `wa:${message_id.slice(0, 200)}` : null,
+      p_idempotency_key: `wa:${message_id.trim().slice(0, 200)}`,
       p_fonte: 'whatsapp',
     });
 
@@ -72,7 +69,6 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({ success: true, movimentacao: data, transacao });
   } catch (error: any) {
     console.error('[webhook] falha no processamento:', error?.name);
-    // Mensagem sem valor é erro do remetente (422); qualquer outra falha é nossa (500, para o chamador retentar).
     if (error?.name === 'MensagemInvalida') {
       return res.status(422).json({ error: 'Não foi possível interpretar a mensagem financeira.' });
     }

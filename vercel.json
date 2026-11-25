@@ -7,16 +7,13 @@
     "api/whatsapp/webhook.ts": {
       "maxDuration": 30
     },
-    "api/whatsapp/meta.ts": {
-      "maxDuration": 30
-    },
-    "api/whatsapp/metricas.ts": {
-      "maxDuration": 30
-    },
     "api/hotmart/webhook.ts": {
       "maxDuration": 30
     },
     "api/admin/reenviar-convite.ts": {
+      "maxDuration": 30
+    },
+    "api/admin/waha.ts": {
       "maxDuration": 30
     }
   },
@@ -45,6 +42,14 @@
         {
           "key": "Permissions-Policy",
           "value": "camera=(), microphone=(), geolocation=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://economia.awesomeapi.com.br; frame-ancestors 'none'; object-src 'none'; base-uri 'self'"
         }
       ]
     },

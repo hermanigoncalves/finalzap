@@ -1,5 +1,4 @@
-// Funcoes puras (sem imports) que montam linhas e decidem erros para os adaptadores
-// do Supabase. Ficam separadas para serem testaveis sem rede.
+// Funções puras que montam linhas e decidem erros para os adaptadores do Supabase.
 
 export type DadosAssinatura = {
   codigo: string;
@@ -12,19 +11,14 @@ export type DadosAssinatura = {
   plano: string | null;
 };
 
-// Mensagem fixa, sem dados pessoais, gravada em assinaturas.convite_erro.
 export const ERRO_TELEFONE_VINCULADO = 'Telefone já vinculado a outra conta';
 export const ERRO_SEM_TELEFONE = 'Compra sem telefone brasileiro válido: perfil não criado';
 
-// assinaturas.plano só aceita 'Mensal' ou 'Anual'; a Hotmart manda o nome livre do plano.
 export function normalizarPlano(nome: string | null): 'Mensal' | 'Anual' | null {
   if (nome === null) return null;
   return /anual|annual|year/i.test(nome) ? 'Anual' : 'Mensal';
 }
 
-// Linha completa para criar a assinatura. Sem telefone gravamos NULL (nunca '').
-// Exige assinaturas.telefone NULLABLE no banco (unicidade por indice parcial WHERE telefone IS NOT NULL).
-// Regra de acesso (SQL verificar_assinatura_ativa): status 'Ativo' com data_vencimento NULL conta como ativa.
 export function linhaNovaAssinatura(d: DadosAssinatura): Record<string, unknown> {
   return {
     hotmart_assinante_codigo: d.codigo,
@@ -38,8 +32,6 @@ export function linhaNovaAssinatura(d: DadosAssinatura): Record<string, unknown>
   };
 }
 
-// Campos a atualizar numa assinatura existente. Valores desconhecidos (null) sao
-// omitidos: nunca apagam dado existente, em especial `ultimo_evento_em`.
 export function atualizacaoAssinatura(d: DadosAssinatura): Record<string, unknown> {
   const campos: Record<string, unknown> = { status: d.status, email: d.email };
   if (d.nome) campos.nome = d.nome;
@@ -50,9 +42,45 @@ export function atualizacaoAssinatura(d: DadosAssinatura): Record<string, unknow
   return campos;
 }
 
-// Filtro PostgREST: so aplica se nao ha marcador ou ele e <= ao novo.
 export function filtroOrdem(ultimoEventoEm: Date): string {
   return `ultimo_evento_em.is.null,ultimo_evento_em.lte.${ultimoEventoEm.toISOString()}`;
+}
+
+const CAMPOS_SENSIVEIS_PESSOA = new Set(['document', 'documents', 'checkout_phone', 'address']);
+
+function mascararEmail(email: string): string {
+  const idx = email.indexOf('@');
+  if (idx <= 0) return '***';
+  const local = email.slice(0, idx);
+  const dominio = email.slice(idx + 1);
+  if (!dominio) return '***';
+  const iniciais = local.length <= 2 ? local.slice(0, 1) : local.slice(0, 2);
+  return `${iniciais}***@${dominio}`;
+}
+
+function minimizarPessoa(valor: unknown): unknown {
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return valor;
+  const copia: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
+    if (CAMPOS_SENSIVEIS_PESSOA.has(k)) continue;
+    copia[k] = k === 'email' && typeof v === 'string' ? mascararEmail(v) : v;
+  }
+  return copia;
+}
+
+function sanitizarPayloadEvento(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return payload;
+  const p: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
+  if (typeof p.email === 'string') p.email = mascararEmail(p.email);
+  if (p.buyer !== undefined) p.buyer = minimizarPessoa(p.buyer);
+  if (p.subscriber !== undefined) p.subscriber = minimizarPessoa(p.subscriber);
+  if (p.data && typeof p.data === 'object' && !Array.isArray(p.data)) {
+    const d: Record<string, unknown> = { ...(p.data as Record<string, unknown>) };
+    if (d.buyer !== undefined) d.buyer = minimizarPessoa(d.buyer);
+    if (d.subscriber !== undefined) d.subscriber = minimizarPessoa(d.subscriber);
+    p.data = d;
+  }
+  return p;
 }
 
 export function linhaEvento(
@@ -65,7 +93,7 @@ export function linhaEvento(
     tipo: e.tipo,
     transacao: e.transacao,
     assinante_codigo: e.assinanteCodigo,
-    payload,
+    payload: sanitizarPayloadEvento(payload),
   };
 }
 
@@ -73,7 +101,6 @@ export function violacaoUnica(erro: { code?: string } | null | undefined): boole
   return erro?.code === '23505';
 }
 
-// O Auth devolve email_exists / user_already_exists (422); versoes antigas so a mensagem.
 export function usuarioJaCadastrado(
   erro: { code?: string; message?: string } | null | undefined,
 ): boolean {
@@ -86,8 +113,6 @@ export function truncarErro(mensagem: string, max = 300): string {
   return mensagem.length > max ? mensagem.slice(0, max) : mensagem;
 }
 
-// Mensagem de erro SEM `message`/`details` (podem conter e-mail ou telefone do cliente):
-// so o codigo (ou status HTTP) do erro.
 export function erroSeguro(
   prefixo: string,
   erro: { code?: string; status?: number } | null | undefined,
@@ -95,9 +120,6 @@ export function erroSeguro(
   return `${prefixo} (${erro?.code ?? erro?.status ?? 'desconhecido'})`;
 }
 
-// Upsert condicional: cria se nao existe; atualiza SO se o marcador da linha for nulo ou
-// <= ao novo. Sem marcador novo, so atualiza linha cujo marcador tambem e nulo (nunca
-// roda update sem condicao). `db` e o SupabaseClient (tipado estruturalmente).
 export async function gravarAssinaturaCondicional(
   db: { from(tabela: string): any },
   d: DadosAssinatura,

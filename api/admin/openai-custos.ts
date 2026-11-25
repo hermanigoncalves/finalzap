@@ -22,8 +22,11 @@ export default async function handler(req: any, res: any) {
     );
     const json: any = await resposta.json().catch(() => ({}));
     if (!resposta.ok) {
-      console.error('[openai-custos] OpenAI respondeu', resposta.status);
-      return res.status(502).json({ error: json?.error?.message || 'A OpenAI recusou a consulta.' });
+      console.error('[openai-custos] OpenAI respondeu', resposta.status, json?.error?.message ?? '');
+      // 401 = chave inválida/revogada; 403 = chave sem permissão (não é sk-admin- ou falta escopo).
+      const dica = resposta.status === 401 ? ' Chave inválida ou revogada.'
+        : resposta.status === 403 ? ' A chave precisa ser de administrador (sk-admin-...) com acesso a custos.' : '';
+      return res.status(502).json({ error: `A OpenAI recusou a consulta (HTTP ${resposta.status}).${dica}` });
     }
 
     let total = 0;

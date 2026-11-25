@@ -17,24 +17,18 @@ export interface TransacaoExtraida {
   tipo: 'receita' | 'despesa';
 }
 
-/**
- * Sanitiza a entrada do usuário para prevenir injeção de prompt e ataques de escape.
- */
 export function sanitizarMensagem(mensagem: string): string {
   if (!mensagem || typeof mensagem !== 'string') {
     return '';
   }
 
   return mensagem
-    .slice(0, 500) // Limite de tamanho
-    .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F]/g, '') // Remove caracteres de controle
-    .replace(/<\/?[a-zA-Z0-9_\-]+>/g, '') // Remove tags XML/HTML para não quebrar a estrutura
+    .slice(0, 500)
+    .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F]/g, '')
+    .replace(/<\/?[a-zA-Z0-9_\-]+(?:\s[^>]*)?>/g, '')
     .trim();
 }
 
-/**
- * Fallback determinístico offline (Regex) quando a OpenAI API não estiver disponível.
- */
 export function analisarMensagemOffline(mensagem: string): TransacaoExtraida {
   const textoLimpo = sanitizarMensagem(mensagem);
 
@@ -74,12 +68,11 @@ export async function analisarMensagemFinanceira(
   const mensagemSanitizada = sanitizarMensagem(mensagem);
 
   if (!mensagemSanitizada) {
-    throw new Error('Mensagem vazia ou inválida para análise.');
+    throw new MensagemInvalida('Mensagem vazia ou inválida para análise.');
   }
 
   const apiKey = process.env.OPENAI_API_KEY;
 
-  // Se não houver chave OpenAI configurada, utiliza o parser offline determinístico
   if (!apiKey || apiKey.startsWith('sk-proj-placeholder')) {
     return analisarMensagemOffline(mensagemSanitizada);
   }
@@ -111,7 +104,6 @@ REGRAS DE SEGURANÇA INEGOCIÁVEIS:
       temperature: 0.1,
     });
 
-    // Registra o consumo real (tokens devolvidos pela API) sem nunca derrubar a análise.
     if (aoUsarOpenAI && response.usage) {
       try {
         await aoUsarOpenAI(
@@ -134,7 +126,6 @@ REGRAS DE SEGURANÇA INEGOCIÁVEIS:
 
     const parsed = JSON.parse(content);
 
-    // Validação estrita do schema retornado
     const valor = typeof parsed.valor === 'number' ? parsed.valor : parseFloat(String(parsed.valor).replace(',', '.'));
     const tipo = parsed.tipo === 'receita' ? 'receita' : 'despesa';
     const descricao = String(parsed.descricao || 'Despesa').slice(0, 150);

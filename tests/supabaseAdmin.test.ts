@@ -9,6 +9,7 @@ import {
   truncarErro,
   erroSeguro,
   gravarAssinaturaCondicional,
+  linhaEvento,
 } from '../lib/hotmart/linhas.ts';
 
 const base = {
@@ -110,4 +111,44 @@ test('erro seguro usa so o code e nao vaza o e-mail da message', () => {
   assert.equal(msg.includes('fulano@x.com'), false);
   assert.equal(erroSeguro('X', { status: 500 }), 'X (500)');
   assert.equal(erroSeguro('X', {}), 'X (desconhecido)');
+});
+
+test('linhaEvento minimiza campos sensiveis de buyer/subscriber e mascara email sem mutar o original', () => {
+  const original = {
+    tipo: 'PURCHASE_APPROVED',
+    transacao: 'HP123',
+    assinanteCodigo: 'SUB1',
+    email: 'comprador@example.com',
+    buyer: {
+      name: 'Teste Comprador',
+      email: 'comprador@example.com',
+      document: '12345678900',
+      documents: [{ value: '12345678900' }],
+      checkout_phone: '11999990000',
+      address: { street: 'Rua X' },
+    },
+    data: {
+      subscriber: {
+        email: 'assinante@dominio.com.br',
+        document: '999',
+        checkout_phone: '11988887777',
+        address: { city: 'SP' },
+      },
+    },
+  };
+  const linha = linhaEvento('HP123:PURCHASE_APPROVED', original, original);
+  const payload = linha.payload as any;
+  assert.equal(payload.email, 'co***@example.com');
+  assert.equal(payload.buyer.email, 'co***@example.com');
+  assert.equal('document' in payload.buyer, false);
+  assert.equal('documents' in payload.buyer, false);
+  assert.equal('checkout_phone' in payload.buyer, false);
+  assert.equal('address' in payload.buyer, false);
+  assert.equal(payload.buyer.name, 'Teste Comprador');
+  assert.equal(payload.data.subscriber.email, 'as***@dominio.com.br');
+  assert.equal('document' in payload.data.subscriber, false);
+  assert.equal('checkout_phone' in payload.data.subscriber, false);
+  assert.equal('address' in payload.data.subscriber, false);
+  assert.equal(original.buyer.document, '12345678900');
+  assert.equal(original.email, 'comprador@example.com');
 });
