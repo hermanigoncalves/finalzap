@@ -28,6 +28,7 @@ const cadeia = [
   '20261123000001_compromissos.sql',
   '20261125000001_credenciais_waha.sql',
   '20261125000002_hardening_producao.sql',
+  '20261125000003_waha_webhook_url_banco.sql',
 ];
 
 let PGlite;
@@ -65,13 +66,14 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
   });
 
   it('a cadeia roda sem erro e a nova migração pode rodar duas vezes seguidas', async () => {
-    const preHardening = cadeia.slice(0, -1);
-    const hardening = cadeia[cadeia.length - 1];
+    const idxHardening = cadeia.indexOf('20261125000002_hardening_producao.sql');
+    const preHardening = cadeia.slice(0, idxHardening);
+    const posHardening = cadeia.slice(idxHardening);
     for (let rodada = 0; rodada < 2; rodada++) {
       for (const f of preHardening) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
     }
     for (let rodada = 0; rodada < 2; rodada++) {
-      await db.exec(fs.readFileSync(path.join(dir, hardening), 'utf8'));
+      for (const f of posHardening) await db.exec(fs.readFileSync(path.join(dir, f), 'utf8'));
     }
     const t = await q(`select count(*)::int c from pg_tables where schemaname='public'`);
     assert.equal(t[0].c, 14);

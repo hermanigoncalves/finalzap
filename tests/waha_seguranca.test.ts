@@ -193,4 +193,14 @@ describe('🔒 Segurança WAHA, n8n e sanitização de payload Hotmart', () => {
     assert.doesNotMatch(serializado, /comprador@dominio\.com/);
     assert.match(serializado, /co\*\*\*@dominio\.com/);
   });
+
+  it('dados do WAHA vêm exclusivamente do banco (credenciais_servico) sem formulário na tela', () => {
+    const adminFront = lerTexto('frontend/src/pages/AssinaturasAdmin.tsx');
+    assert.doesNotMatch(adminFront, /WAHA_URL|WAHA_API_KEY|WAHA_WEBHOOK_SECRET|wahaHook/);
+
+    const apiWaha = lerTexto('api/admin/waha.ts');
+    for (const chave of ['WAHA_URL', 'WAHA_API_KEY', 'WAHA_WEBHOOK_SECRET', 'WAHA_WEBHOOK_URL']) {
+      assert.ok(apiWaha.includes(`lerCredencial(supabase, '${chave}')`), `api/admin/waha.ts deve ler ${chave} do banco`);
+    }
+  });
 });

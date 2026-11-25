@@ -62,7 +62,6 @@ export default function Administrador() {
   const [waha, setWaha] = useState<{ status: string; me: { id?: string; pushName?: string } | null; qr: string | null } | null>(null);
   const [wahaErro, setWahaErro] = useState<string | null>(null);
   const [wahaCarregando, setWahaCarregando] = useState(false);
-  const [wahaHook, setWahaHook] = useState('');
   const wahaRef = useRef(waha);
   wahaRef.current = waha;
   const [periodo, setPeriodo] = useState<Periodo>(() => periodoMesAtual(hojeISO()));
@@ -110,7 +109,7 @@ export default function Administrador() {
       headers: { ...init.headers, Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
     });
     const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error('Falha na consulta.');
+    if (!res.ok) throw new Error(typeof json?.error === 'string' && json.error ? json.error : 'Falha na consulta.');
     return json;
   };
 
@@ -154,20 +153,14 @@ export default function Administrador() {
       setWaha(await chamarApi('/api/admin/waha', acao ? { method: 'POST', body: JSON.stringify({ acao, ...extra }) } : {}));
     } catch (e) {
       setWaha(null);
-      setWahaErro(e instanceof Error && e.message === 'Sessão expirada.' ? 'Sessão expirada.' : 'Não foi possível consultar o WAHA.');
+      setWahaErro(e instanceof Error && e.message !== 'Falha na consulta.' ? e.message : 'Não foi possível consultar o WAHA.');
     } finally {
       setWahaCarregando(false);
     }
   };
 
-  const salvarWaha = async (chave: string, valor: string) => {
-    await salvarCredencial(chave, valor);
-    void consultarWaha();
-  };
-
   useEffect(() => {
     if (tab !== 'whatsapp') return;
-    void carregarCredenciais();
     void consultarWaha();
     const t = setInterval(() => { if (wahaRef.current?.status === 'SCAN_QR_CODE') void consultarWaha(); }, 5000);
     return () => clearInterval(t);
@@ -762,82 +755,40 @@ export default function Administrador() {
         </>
       )}
       {tab === 'whatsapp' && (
-        <>
-          <Card>
-            <CardHeader><CardTitle>Instância WAHA</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-slate-500">URL e chave ficam guardadas só no servidor e nunca são exibidas de volta.</p>
-              {([
-                ['WAHA_URL', 'URL do WAHA (https://...)'],
-                ['WAHA_API_KEY', 'Chave de API do WAHA'],
-                ['WAHA_WEBHOOK_SECRET', 'Segredo do webhook n8n (opcional; usa chave WAHA se vazio)'],
-              ] as const).map(([chave, rotulo]) => {
-                const atual = credenciais.find((c) => c.chave === chave);
-                const valor = credValores[chave] || '';
-                return (
-                  <div key={chave} className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-center">
-                    <input
-                      type="password"
-                      autoComplete="off"
-                      aria-label={rotulo}
-                      placeholder={atual?.configurada ? `${rotulo} (configurada, termina em ${atual.final})` : rotulo}
-                      value={valor}
-                      onChange={(e) => setCredValores({ ...credValores, [chave]: e.target.value })}
-                      className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none"
-                    />
-                    <Button type="button" size="sm" disabled={!valor.trim()} onClick={() => void salvarWaha(chave, valor)}>Salvar</Button>
-                    <Button type="button" variant="outline" size="sm" disabled={!atual?.configurada} onClick={() => void salvarWaha(chave, '')}>Remover</Button>
+        <Card>
+          <CardHeader><CardTitle>Conexão do WhatsApp</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs text-slate-500">As credenciais e a URL da instância WAHA são carregadas diretamente do banco de dados.</p>
+            {wahaCarregando && <p className="text-sm text-slate-500">Consultando o WAHA...</p>}
+            {wahaErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{wahaErro}</p>}
+            {waha && (
+              <div className="space-y-2">
+                <p className="text-lg font-bold text-slate-900 dark:text-white">{STATUS_WAHA[waha.status] ?? waha.status}</p>
+                {waha.me && <p className="text-sm text-slate-500">{waha.me.pushName ?? 'Conta'} ({waha.me.id?.replace(/@.*/, '')})</p>}
+                {waha.qr && (
+                  <div>
+                    <img src={waha.qr} alt="QR Code para conectar o WhatsApp" className="w-64 h-64 rounded-lg border border-slate-200 bg-white p-2" />
+                    <p className="text-xs text-slate-500 mt-1">WhatsApp &gt; Aparelhos conectados &gt; Conectar um aparelho.</p>
                   </div>
-                );
-              })}
-              {credMsg && <p role="status" className="text-sm text-slate-600 dark:text-slate-300">{credMsg}</p>}
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 items-center">
-                <input
-                  type="url"
-                  aria-label="URL do webhook do n8n"
-                  placeholder="Webhook do n8n (https://.../webhook/finalzap-waha)"
-                  value={wahaHook}
-                  onChange={(e) => setWahaHook(e.target.value)}
-                  className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none"
-                />
-                <Button type="button" size="sm" disabled={!wahaHook.trim() || wahaCarregando} onClick={() => void consultarWaha('webhook', { url: wahaHook.trim() })}>Configurar webhook</Button>
+                )}
               </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Conexão do WhatsApp</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              {wahaCarregando && <p className="text-sm text-slate-500">Consultando o WAHA...</p>}
-              {wahaErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{wahaErro}</p>}
-              {waha && (
-                <div className="space-y-2">
-                  <p className="text-lg font-bold text-slate-900 dark:text-white">{STATUS_WAHA[waha.status] ?? waha.status}</p>
-                  {waha.me && <p className="text-sm text-slate-500">{waha.me.pushName ?? 'Conta'} ({waha.me.id?.replace(/@.*/, '')})</p>}
-                  {waha.qr && (
-                    <div>
-                      <img src={waha.qr} alt="QR Code para conectar o WhatsApp" className="w-64 h-64 rounded-lg border border-slate-200 bg-white p-2" />
-                      <p className="text-xs text-slate-500 mt-1">WhatsApp &gt; Aparelhos conectados &gt; Conectar um aparelho.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha('start')}>Conectar</Button>
-                <Button type="button" variant="outline" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha()}>Atualizar</Button>
-                <Button type="button" variant="outline" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha('stop')}>Parar</Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={wahaCarregando}
-                  onClick={() => { if (window.confirm('Desconectar o número do WhatsApp desta instância?')) void consultarWaha('logout'); }}
-                >
-                  Desconectar número
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </>
+            )}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha('start')}>Conectar</Button>
+              <Button type="button" variant="outline" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha()}>Atualizar</Button>
+              <Button type="button" variant="outline" size="sm" disabled={wahaCarregando} onClick={() => void consultarWaha('stop')}>Parar</Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={wahaCarregando}
+                onClick={() => { if (window.confirm('Desconectar o número do WhatsApp desta instância?')) void consultarWaha('logout'); }}
+              >
+                Desconectar número
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
       {tab === 'custos' && (
         <>

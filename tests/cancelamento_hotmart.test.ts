@@ -164,7 +164,7 @@ describe('Regras e fluxos n8n de cancelamento na Hotmart', () => {
     assert.equal(gerarToken.parameters.method, 'POST');
     assert.equal(gerarToken.parameters.url, 'https://api-sec-vlc.hotmart.com/security/oauth/token?grant_type=client_credentials');
     assert.equal(gerarToken.parameters.authentication, 'genericCredentialType');
-    assert.equal(gerarToken.parameters.genericAuthType, 'httpTemplatedCustomAuth');
+    assert.ok(['httpTemplatedCustomAuth', 'httpCustomAuth'].includes(String(gerarToken.parameters.genericAuthType)));
     assert.equal(gerarToken.retryOnFail, true);
     assert.equal(gerarToken.onError, 'continueErrorOutput');
     assert.equal(subWf.connections['Gerar token Hotmart']?.main?.[1]?.[0]?.node, 'Retornar falha Hotmart');

@@ -3,7 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { validateJwtAuth } from '../auth/jwtAuth';
 import { clienteServico } from '../serverEnv';
 
-export const CHAVES_CREDENCIAL = ['OPENAI_ADMIN_KEY', 'WAHA_URL', 'WAHA_API_KEY', 'WAHA_WEBHOOK_SECRET'] as const;
+export const CHAVES_CREDENCIAL = ['OPENAI_ADMIN_KEY', 'WAHA_URL', 'WAHA_API_KEY', 'WAHA_WEBHOOK_SECRET', 'WAHA_WEBHOOK_URL'] as const;
 export type ChaveCredencial = (typeof CHAVES_CREDENCIAL)[number];
 
 const PREFIXO_ENC = 'enc:v1:';

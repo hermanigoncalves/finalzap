@@ -48,3 +48,7 @@ strix_runs/
 
 # Credenciais OAuth baixadas do Google: nunca versionar
 client_secret*.json
+.vercel/
+
+.vercel
+.env*

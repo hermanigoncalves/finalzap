@@ -17,7 +17,7 @@ export default async function handler(req: any, res: any) {
     const base = (await lerCredencial(supabase, 'WAHA_URL'))?.replace(/\/+$/, '');
     const chave = await lerCredencial(supabase, 'WAHA_API_KEY');
     if (!base || !chave || !/^https?:\/\//.test(base)) {
-      return res.status(400).json({ error: 'Configure a URL e a chave do WAHA primeiro.' });
+      return res.status(400).json({ error: 'Configure WAHA_URL e WAHA_API_KEY na tabela credenciais_servico do banco.' });
     }
 
     const waha = (caminho: string, init: RequestInit = {}) =>
@@ -28,7 +28,7 @@ export default async function handler(req: any, res: any) {
       });
 
     if (req.method === 'POST' && req.body?.acao === 'webhook') {
-      const url = String(req.body?.url ?? '').trim();
+      const url = String(req.body?.url || (await lerCredencial(supabase, 'WAHA_WEBHOOK_URL')) || '').trim();
       if (!/^https:\/\/[^\s]+$/.test(url)) return res.status(400).json({ error: 'Informe a URL https do webhook do n8n.' });
       const segredoWebhook = (await lerCredencial(supabase, 'WAHA_WEBHOOK_SECRET')) || chave;
       const atual = await waha(`/api/sessions/${SESSAO}`);
@@ -48,6 +48,22 @@ export default async function handler(req: any, res: any) {
       if (!acao) return res.status(400).json({ error: 'Ação inválida.' });
       const r = await waha(`/api/sessions/${SESSAO}/${acao}`, { method: 'POST' });
       if (!r.ok && r.status !== 422) return res.status(502).json({ error: `WAHA respondeu ${r.status}.` });
+      const urlBanco = (await lerCredencial(supabase, 'WAHA_WEBHOOK_URL'))?.trim();
+      if (acao === 'start' && urlBanco && /^https:\/\/[^\s]+$/.test(urlBanco)) {
+        const segredoWebhook = (await lerCredencial(supabase, 'WAHA_WEBHOOK_SECRET')) || chave;
+        const atual = await waha(`/api/sessions/${SESSAO}`);
+        if (atual.ok) {
+          const config = {
+            ...((await atual.json()).config ?? {}),
+            webhooks: [{ url: urlBanco, events: ['message'], customHeaders: [{ name: 'X-Api-Key', value: segredoWebhook }] }],
+          };
+          await waha(`/api/sessions/${SESSAO}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: SESSAO, config }),
+          });
+        }
+      }
     }
 
     const rs = await waha(`/api/sessions/${SESSAO}`);
