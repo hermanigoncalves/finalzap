@@ -1,0 +1,5 @@
+#!/bin/sh
+npm run verificar --silent || {
+  echo "\nPush bloqueado: npm run verificar falhou." >&2
+  exit 1
+}

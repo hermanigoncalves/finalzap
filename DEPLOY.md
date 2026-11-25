@@ -5,9 +5,9 @@ Arquitetura em produção:
 | Peça | Onde roda | Papel |
 |------|-----------|-------|
 | Painel (React/Vite) | Vercel (estático, `frontend/`) | Login, lançamentos, orçamento, contas a pagar, admin |
-| Funções `api/*` | Vercel (Node) | Webhook da Hotmart, convite, métricas da Meta, endpoints internos |
+| Funções `api/*` | Vercel (Node) | Webhook da Hotmart, convite, painel admin (credenciais, custos OpenAI, WAHA), endpoint interno do WhatsApp |
 | Banco e Auth | Supabase | Tabelas em português, RLS, funções SQL |
-| Conversas do WhatsApp | n8n (`n8n/finalzap-supabase.json`) | Agente de IA que registra gastos, orçamentos e contas |
+| Conversas do WhatsApp | n8n (`n8n/finalzap-waha.json`) + WAHA | Agente de IA que registra gastos, orçamentos, contas e compromissos |
 
 ## 1. Supabase
 
@@ -27,8 +27,14 @@ Arquitetura em produção:
    12. `supabase/migrations/20261119000001_endurece_funcoes_indices.sql`
    13. `supabase/migrations/20261119000002_chave_conta_do_dono.sql`
    14. `supabase/migrations/20261119000003_vinculo_whatsapp.sql`
+   15. `supabase/migrations/20261119000004_contas_idempotency.sql`
+   16. `supabase/migrations/20261119000005_recorrentes_idempotency.sql`
+   17. `supabase/migrations/20261123000001_compromissos.sql`
+   18. `supabase/migrations/20261125000001_credenciais_waha.sql`
+   19. `supabase/migrations/20261125000002_hardening_producao.sql` (RLS por assinatura ativa, LGPD, storage; **obrigatória**)
 
    As demais migrações em `supabase/migrations/` (2026-03) são do modelo antigo em inglês e **não** são necessárias.
+   Depois de rodar, confira em **Database > Migrations** (ou `select` nas tabelas `compromissos` e `vinculos_whatsapp`) que as 19 foram aplicadas, sobretudo a última.
 3. **Authentication > URL Configuration**:
    - **Site URL:** `https://SEU-DOMINIO` (o mesmo valor de `APP_URL`).
    - **Redirect URLs:** `https://SEU-DOMINIO/definir-senha` e `https://SEU-DOMINIO/**`. Sem isso o link do convite não abre a tela de definir senha.
@@ -64,12 +70,12 @@ Arquitetura em produção:
    | `N8N_EMAIL_WEBHOOK_URL` | sim | URL de produção do webhook do n8n que envia o e-mail do convite |
    | `N8N_EMAIL_WEBHOOK_SECRET` | sim | Segredo (header `x-webhook-secret`), igual a `FINALZAP_EMAIL_SECRET` no n8n |
    | `HOTMART_HOTTOK` | sim | Token do webhook (Hotmart > Webhook > Autenticação). Sem ele o webhook recusa tudo |
-   | `META_ACCESS_TOKEN`, `META_WABA_ID` | para métricas | Aba "Tokens / Uso" do admin (consulta de custo na Graph API) |
+   | `ALLOWED_ORIGINS` | sim | Origens permitidas por CORS nos endpoints `api/admin/*` (`https://SEU-DOMINIO`) |
+   | `CREDENCIAIS_ENCRYPTION_KEY` | sim (produção) | Segredo longo (32+ bytes) que cifra, em AES-256-GCM, as credenciais salvas no painel admin (OpenAI, WAHA). Trocar depois invalida as já salvas |
+   | `WAHA_WEBHOOK_SECRET` | recomendado | Segredo que o WAHA envia no header `X-Api-Key` ao chamar o webhook do n8n. Também pode ser salvo pelo painel admin |
    | `HOTMART_PRODUTO_ID` | não | Padrão `8889619`. Use `0` ou `788921` só para testar com o sandbox da Hotmart |
-   | `USD_BRL`, `META_GRAPH_VERSION`, `META_TARIFAS_USD` | não | Ajustes de cotação e tarifa |
-   | `META_VERIFY_TOKEN`, `META_APP_SECRET` | não | Só se o callback da Meta apontar para `api/whatsapp/meta` |
-   | `BOT_SECRET_TOKEN`, `OPENAI_API_KEY` | não | Só para o endpoint interno `api/whatsapp/webhook` |
-   | `ALLOWED_ORIGINS` | não | CORS dos endpoints legados (Baileys) |
+   | `USD_BRL` | não | Cotação USD→BRL para o custo em reais (padrão `5.50`) |
+   | `BOT_SECRET_TOKEN`, `OPENAI_API_KEY` | só se usar `api/whatsapp/webhook` | Endpoint interno que interpreta texto com a OpenAI (header `x-bot-secret`). Sem `BOT_SECRET_TOKEN` ele responde 500 |
 
    A lista completa, com comentários, está em `.env.example`. **Nunca** commite valores reais.
 3. Faça o deploy e, em **Settings > Domains**, ligue o domínio.
@@ -91,9 +97,13 @@ Regras de acesso (plano mensal):
 
 ## 4. n8n e WhatsApp
 
-Siga `n8n/README.md`: importar `n8n/finalzap-supabase.json`, criar a credencial "Supabase FINALZAP" (service_role, só no n8n), preencher o `phone_number_id` e ter o template `lembrete_conta_a_pagar` aprovado (`docs/meta-template.md`).
+O WhatsApp roda pelo **WAHA** (não há mais Meta Cloud API). Siga `n8n/README.md`:
 
-O callback do WhatsApp na Meta é **um só por app**: hoje ele aponta para o n8n. O custo das mensagens aparece no admin pela consulta à Graph API (`META_ACCESS_TOKEN` e `META_WABA_ID`).
+1. Importe no n8n `n8n/finalzap-waha.json` (principal), `n8n/finalzap-agente-agenda.json` e `n8n/finalzap-cancelar-assinatura-hotmart.json` (sub-workflows), além de `n8n/finalzap-email-convite.json`.
+2. Crie as credenciais: "Supabase FINALZAP" (service_role, **só no n8n**), `Waha api` (Header Auth, header `X-Api-Key`), OpenAI e Gmail.
+3. No painel admin do FinalZap (aba de credenciais), salve `WAHA_URL`, `WAHA_API_KEY` e, se quiser, `WAHA_WEBHOOK_SECRET`. Eles ficam cifrados no banco (`CREDENCIAIS_ENCRYPTION_KEY`).
+4. Pelo painel admin, inicie a sessão `default`, leia o QR Code com o número do FinalZap e registre a URL de produção do webhook do n8n (`/webhook/finalzap-waha`). O webhook exige o header `X-Api-Key`.
+5. Os lembretes diários das 8h são texto simples via WAHA; não precisam de template aprovado.
 
 ## 5. Checagem depois do deploy
 
@@ -112,4 +122,4 @@ O callback do WhatsApp na Meta é **um só por app**: hoje ele aponta para o n8n
 
 ## 7. Legado (não evoluir)
 
-`bot-server/` (Baileys/QR code) é do canal antigo e fica fora do deploy. Os endpoints `api/whatsapp/instances/*` já foram removidos.
+`bot-server/` (Baileys/QR code) é do canal antigo e fica fora do deploy. Os endpoints `api/whatsapp/instances/*` e `api/whatsapp/meta` (Meta Cloud API) já foram removidos.
