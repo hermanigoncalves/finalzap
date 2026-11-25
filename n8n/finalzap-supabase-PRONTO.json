@@ -149,7 +149,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: $json.mensagem || 'Não consegui concluir o vínculo agora. Tente de novo em alguns minutos.' }) }}",
+        "jsonBody": "={{ JSON.stringify({ session: 'FinalZap', chatId: $('Normalizar mensagem').first().json.chat_id, text: $json.mensagem || 'Não consegui concluir o vínculo agora. Tente de novo em alguns minutos.' }) }}",
         "options": {}
       },
       "credentials": {
@@ -1020,7 +1020,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: $json.output }) }}",
+        "jsonBody": "={{ JSON.stringify({ session: 'FinalZap', chatId: $('Normalizar mensagem').first().json.chat_id, text: $json.output }) }}",
         "options": {}
       },
       "credentials": {
@@ -1101,7 +1101,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: 'Por enquanto eu só entendo mensagens de texto e áudio. Pode me mandar o que precisa por texto? 😊' }) }}",
+        "jsonBody": "={{ JSON.stringify({ session: 'FinalZap', chatId: $('Normalizar mensagem').first().json.chat_id, text: 'Por enquanto eu só entendo mensagens de texto e áudio. Pode me mandar o que precisa por texto? 😊' }) }}",
         "options": {}
       },
       "credentials": {
@@ -1129,7 +1129,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: \"Olá! 👋💚 Bem-vindo ao FINALZAP!\\n\\nNão encontramos uma assinatura ativa vinculada a este WhatsApp.\\n\\n💰 Assine por R$ 19,90/mês para controlar suas despesas, receitas, contas e agenda.\\n\\nFaça sua assinatura aqui:\\nhttps://pay.hotmart.com/N108346496T\\n\\nSe você já assinou, entre em contato para verificarmos seu acesso.\" }) }}",
+        "jsonBody": "={{ JSON.stringify({ session: 'FinalZap', chatId: $('Normalizar mensagem').first().json.chat_id, text: \"Olá! 👋💚 Bem-vindo ao FINALZAP!\\n\\nNão encontramos uma assinatura ativa vinculada a este WhatsApp.\\n\\n💰 Assine por R$ 19,90/mês para controlar suas despesas, receitas, contas e agenda.\\n\\nFaça sua assinatura aqui:\\nhttps://pay.hotmart.com/N108346496T\\n\\nSe você já assinou, entre em contato para verificarmos seu acesso.\" }) }}",
         "options": {}
       },
       "credentials": {
@@ -1265,7 +1265,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Montar lembretes').item.json.telefone + '@c.us', text: $json.Menssage }) }}",
+        "jsonBody": "={{ JSON.stringify({ session: 'FinalZap', chatId: $('Montar lembretes').item.json.telefone + '@c.us', text: $json.Menssage }) }}",
         "options": {}
       },
       "credentials": {
@@ -1410,7 +1410,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: 'Tive uma instabilidade agora e não consegui concluir. Tente de novo em alguns minutos. 🙏' }) }}",
+        "jsonBody": "={{ JSON.stringify({ session: 'FinalZap', chatId: $('Normalizar mensagem').first().json.chat_id, text: 'Tive uma instabilidade agora e não consegui concluir. Tente de novo em alguns minutos. 🙏' }) }}",
         "options": {}
       },
       "credentials": {

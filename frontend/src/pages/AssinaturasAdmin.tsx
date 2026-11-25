@@ -59,7 +59,7 @@ export default function Administrador() {
   const [openaiCusto, setOpenaiCusto] = useState<{ total: number; moeda: string } | null>(null);
   const [openaiErro, setOpenaiErro] = useState<string | null>(null);
   const [erroLocal, setErroLocal] = useState<string | null>(null);
-  const [waha, setWaha] = useState<{ status: string; me: { id?: string; pushName?: string } | null; qr: string | null } | null>(null);
+  const [waha, setWaha] = useState<{ session?: string; status: string; me: { id?: string; pushName?: string } | null; qr: string | null } | null>(null);
   const [wahaErro, setWahaErro] = useState<string | null>(null);
   const [wahaCarregando, setWahaCarregando] = useState(false);
   const wahaRef = useRef(waha);
@@ -758,7 +758,9 @@ export default function Administrador() {
         <Card>
           <CardHeader><CardTitle>Conexão do WhatsApp</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <p className="text-xs text-slate-500">As credenciais e a URL da instância WAHA são carregadas diretamente do banco de dados.</p>
+            <p className="text-xs text-slate-500">
+              As credenciais e a URL da instância WAHA são carregadas diretamente do banco de dados. Instância: <strong className="text-slate-700 dark:text-slate-300">{waha?.session ?? 'FinalZap'}</strong>.
+            </p>
             {wahaCarregando && <p className="text-sm text-slate-500">Consultando o WAHA...</p>}
             {wahaErro && <p role="alert" className="text-sm text-red-600 dark:text-red-400">{wahaErro}</p>}
             {waha && (

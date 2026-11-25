@@ -199,8 +199,13 @@ describe('🔒 Segurança WAHA, n8n e sanitização de payload Hotmart', () => {
     assert.doesNotMatch(adminFront, /WAHA_URL|WAHA_API_KEY|WAHA_WEBHOOK_SECRET|wahaHook/);
 
     const apiWaha = lerTexto('api/admin/waha.ts');
-    for (const chave of ['WAHA_URL', 'WAHA_API_KEY', 'WAHA_WEBHOOK_SECRET', 'WAHA_WEBHOOK_URL']) {
+    for (const chave of ['WAHA_URL', 'WAHA_API_KEY', 'WAHA_WEBHOOK_SECRET', 'WAHA_WEBHOOK_URL', 'WAHA_SESSION']) {
       assert.ok(apiWaha.includes(`lerCredencial(supabase, '${chave}')`), `api/admin/waha.ts deve ler ${chave} do banco`);
     }
+    assert.ok(apiWaha.includes("'FinalZap'"), 'api/admin/waha.ts deve usar FinalZap como instância padrão');
+
+    const wahaWf = lerTexto('n8n/finalzap-waha.json');
+    assert.doesNotMatch(wahaWf, /session:\s*'default'/);
+    assert.match(wahaWf, /session:\s*'FinalZap'/);
   });
 });
