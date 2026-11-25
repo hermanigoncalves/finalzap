@@ -1,0 +1,1911 @@
+{
+  "name": "FINALZAP - Controle de Gastos e Agenda (WAHA)",
+  "nodes": [
+    {
+      "id": "fc047cfe-a2fa-4e68-bc30-feacd89e80d8",
+      "name": "Mensagem no WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        176
+      ],
+      "parameters": {
+        "authentication": "headerAuth",
+        "httpMethod": "POST",
+        "path": "finalzap-waha",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "webhookId": "finalzap-waha"
+    },
+    {
+      "id": "d50831fd-aeff-4534-8696-8f1518874783",
+      "name": "É mensagem de usuário?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        224,
+        176
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-msg-id",
+              "leftValue": "={{ $json.body?.event === 'message' && !$json.body?.payload?.fromMe && /@(c.us|lid)$/.test($json.body?.payload?.from || '') ? $json.body.payload.id : '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "02b22bf2-b5c9-49de-b696-c68423b61581",
+      "name": "Normalizar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        176
+      ],
+      "parameters": {
+        "jsCode": "const p = $input.first().json.body?.payload ?? {};\nconst chatId = String(p.from ?? '');\nconst alt = String(p._data?.key?.remoteJidAlt ?? p._data?.key?.senderPn ?? '');\nconst from = chatId.endsWith('@lid') ? alt : chatId;\nlet d = from.replace(/@.*/, '').replace(/\\D/g, '').replace(/^0+/, '');\nif (!d.startsWith('55') || (d.length !== 12 && d.length !== 13)) return [];\nif (d.length === 12 && /[6-9]/.test(d[4])) d = d.slice(0, 4) + '9' + d.slice(4);\nconst sem9 = (d.length === 13 && d[4] === '9') ? d.slice(0, 4) + d.slice(5) : d;\nconst mime = String(p.media?.mimetype ?? '');\nconst tipo = p.hasMedia ? (mime.startsWith('audio/') ? 'audio' : 'outro') : (p.body ? 'text' : 'outro');\nconst midia = p.media?.url ? new URL(p.media.url, 'https://meu-waha.xiekee.easypanel.host') : null;\nconst sp = DateTime.now().setZone('America/Sao_Paulo');\nreturn [{ json: {\n  telefone: d,\n  telefone_alt: sem9,\n  wa_id: from,\n  chat_id: chatId,\n  message_id: p.id,\n  tipo,\n  texto: tipo === 'text' ? String(p.body) : '',\n  audio_url: tipo === 'audio' && midia ? 'https://meu-waha.xiekee.easypanel.host' + midia.pathname : null,\n  hoje: sp.toFormat('yyyy-MM-dd'),\n  mes: sp.toFormat('yyyy-MM'),\n  agora_sp: sp.toFormat(\"yyyy-MM-dd'T'HH:mm:ssZZ\"),\n  dia_semana: sp.setLocale('pt-BR').toFormat('cccc'),\n} }];"
+      }
+    },
+    {
+      "id": "7dd632c7-be1b-4642-a695-311a437ad35c",
+      "name": "É código de vínculo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        176
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-vinculo",
+              "leftValue": "={{ $json.tipo === 'text' && /^\\s*FZ-[0-9A-Fa-f]{8}\\s*$/.test($json.texto) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "8a5c9439-7565-4d8a-9842-7fe7c5aac30d",
+      "name": "Vincular WhatsApp (RPC)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://xtpdfqvjffpukiwqciso.supabase.co/rest/v1/rpc/vincular_whatsapp",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "supabaseApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ p_telefone: $json.telefone, p_codigo: $json.texto.trim() }) }}",
+        "options": {}
+      },
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "c2a8e7c7-77b0-4f4c-a6c0-2f0d0e1716d3",
+      "name": "Responder vínculo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        80
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://meu-waha.xiekee.easypanel.host/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: $json.mensagem || 'Não consegui concluir o vínculo agora. Tente de novo em alguns minutos.' }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "id": "a162cb05-07b3-4f68-86bb-df5ed74d7ed0",
+      "name": "Buscar assinatura",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        272
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "assinaturas",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')&status=in.(Ativo,Cancelado)' }}"
+      },
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "ba6d08d6-d4d9-4bea-ab7b-cadfaf7be8be",
+      "name": "Avaliar assinatura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        272
+      ],
+      "parameters": {
+        "jsCode": "const agora = new Date();\nconst vale = (r) => { const v = r.data_vencimento ? new Date(r.data_vencimento) > agora : null; return r.status === 'Ativo' ? (v === null || v) : r.status === 'Cancelado' ? v === true : false; };\nconst ativa = $input.all().map(i => i.json).some(r => r.telefone && vale(r));\nreturn [{ json: { ativa } }];"
+      }
+    },
+    {
+      "id": "4a3302ed-a3e5-4439-b801-4008b28df5cb",
+      "name": "Assinatura ativa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        272
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-ativa",
+              "leftValue": "={{ $json.ativa }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "068ef358-af08-45cd-bd77-602fc92031e4",
+      "name": "Recorrentes existentes",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        176
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "lancamentos_recorrentes",
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}"
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "1c238fa0-cc05-4449-b059-b756dc452d35",
+      "name": "Movimentações existentes",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1792,
+        176
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "movimentacoes",
+        "returnAll": false,
+        "limit": 1,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}"
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "5470f05c-75c1-44a9-ad17-5974736b8e97",
+      "name": "Tipo da mensagem",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2016,
+        160
+      ],
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "outputKey": "text",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-text",
+                    "leftValue": "={{ $('Normalizar mensagem').first().json.tipo }}",
+                    "rightValue": "text",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "outputKey": "audio",
+              "renameOutput": true,
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "sw-audio",
+                    "leftValue": "={{ $('Normalizar mensagem').first().json.tipo }}",
+                    "rightValue": "audio",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "outro"
+        }
+      }
+    },
+    {
+      "id": "f121c9eb-297a-473c-b5f0-093cb233ba71",
+      "name": "Assistente FINALZAP",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3744,
+        112
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $(\"Normalizar mensagem\").first().json.texto || $json.text }}",
+        "options": {
+          "systemMessage": "=FINALZAP 2.1: ASSISTENTE FINANCEIRO E DE AGENDA PELO WHATSAPP\nVocê é o FINALZAP, assistente financeiro e de agenda pessoal. Controla receitas, despesas, contas a pagar, orçamentos e delega compromissos para gerenciar_agenda. Responda sempre em português brasileiro, simpático, curto e claro. Nunca mostre detalhes técnicos (banco, ferramentas, IDs, erros brutos) e nunca peça nem informe telefone.\n\nDATA E MOEDA\nHoje é {{ $(\"Normalizar mensagem\").first().json.hoje }} (fuso America/Sao_Paulo). O mês atual é {{ $(\"Normalizar mensagem\").first().json.mes }} (AAAA-MM). Só trabalhamos em reais (BRL).\n\nCATEGORIAS\nDespesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Serviços, Software, Outros.\nReceitas: Salário, Freelance, Vendas, Outros.\n\nREGRAS DE OURO\n1. O banco é a fonte dos dados. Saldos, lançamentos, contas e agenda vêm sempre das ferramentas.\n2. Só confirme uma operação depois que a ferramenta retornar sucesso.\n3. Faltou valor, vencimento ou dado essencial: pergunte só o que falta.\n\nMOVIMENTAÇÕES, ORÇAMENTOS, CONTAS E RECORRENTES\n- Use registrar_movimentacao, consultar_movimentacoes, saldo_total, resumo_mensal, consultar_orcamentos, salvar_orcamento, atualizar_orcamento, cadastrar_conta_a_pagar, consultar_contas_a_pagar, marcar_conta_como_paga, cadastrar_recorrente e consultar_recorrentes.\n- Primeiro acesso deste cliente: {{ ($(\"Recorrentes existentes\").first().json.id || $(\"Movimentações existentes\").first().json.id) ? \"NÃO\" : \"SIM\" }}.\n- Ao marcar conta como paga (marcar_conta_como_paga), o banco já cria a despesa: nunca chame registrar_movimentacao novamente.\n\nAGENDA E COMPROMISSOS\n- Para qualquer pedido sobre compromissos, reuniões, consultas ou agenda pessoal (agendar, consultar, remarcar ou cancelar), chame a ferramenta gerenciar_agenda passando o pedido completo.\n- Se a mensagem misturar finanças e compromisso (ex.: \"paguei 180 no dentista e marca retorno dia 10 às 15h\"), execute as ferramentas financeiras e também gerenciar_agenda, unindo os resultados na resposta.\n- Nunca crie lançamentos em movimentacoes nem em contas_a_pagar para um compromisso.\n- Só envie confirmar_conflito=true em gerenciar_agenda depois que o cliente confirmar explicitamente que deseja agendar mesmo havendo conflito de horário.\n\nASSINATURA E CANCELAMENTO (HOTMART)\n- Quando o cliente pedir para cancelar a assinatura ou o plano do FINALZAP (não confundir com cancelar compromisso de agenda ou conta a pagar), use exclusivamente a ferramenta cancelar_assinatura.\n- Processo obrigatório em 2 etapas: na primeira mensagem do pedido, chame cancelar_assinatura com confirmacao_explicita=false para verificar a assinatura e pedir confirmação clara ao cliente. Só chame com confirmacao_explicita=true depois que o cliente responder confirmando explicitamente.\n- Só envie confirmação de cancelamento bem-sucedido ao cliente quando cancelar_assinatura retornar cancelado=true (efetivado na Hotmart). Se retornar cancelado=false, repasse a orientação retornada pela ferramenta deixando claro que a assinatura NÃO foi cancelada e nenhuma cobrança foi interrompida.",
+          "enableStreaming": false
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "7fd9e9dc-0e90-4368-9739-5686ec29df0b",
+      "name": "Modelo OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2912,
+        336
+      ],
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4o-mini",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "options": {}
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "wEfXskFJTAKccNso",
+          "name": "OpenAI Jarvis"
+        }
+      }
+    },
+    {
+      "id": "7901d33a-3e2b-4b40-b6d2-320fbfaea9f8",
+      "name": "Memória da conversa",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        3040,
+        336
+      ],
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Normalizar mensagem').first().json.telefone }}",
+        "contextWindowLength": 10
+      }
+    },
+    {
+      "id": "9e32958a-9b45-4ac4-82b0-c617b4bec5e3",
+      "name": "registrar_movimentacao",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3168,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "movimentacoes",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "tipo",
+              "fieldValue": "={{ $fromAI('tipo','Tipo da movimentação: receita ou despesa') }}"
+            },
+            {
+              "fieldId": "valor",
+              "fieldValue": "={{ $fromAI('valor','Valor positivo em reais, número com ponto decimal. Ex: 45.90','number') }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria. Despesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Serviços, Software, Outros. Receitas: Salário, Freelance, Vendas, Outros') }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $fromAI('descricao','Descrição curta da movimentação') }}"
+            },
+            {
+              "fieldId": "data",
+              "fieldValue": "={{ $fromAI('data','Data AAAA-MM-DD da movimentação; vazio se for hoje','string','') || $('Normalizar mensagem').first().json.hoje }}"
+            },
+            {
+              "fieldId": "fonte",
+              "fieldValue": "whatsapp"
+            },
+            {
+              "fieldId": "idempotency_key",
+              "fieldValue": "={{ 'wa:' + $('Normalizar mensagem').first().json.message_id + ':' + (() => { const t=$fromAI('tipo','Tipo da movimentação: receita ou despesa'), v=$fromAI('valor','Valor positivo em reais, número com ponto decimal. Ex: 45.90','number'), c=$fromAI('categoria','Categoria. Despesas: Alimentação, Transporte, Moradia, Saúde, Educação, Lazer, Compras, Contas, Serviços, Software, Outros. Receitas: Salário, Freelance, Vendas, Outros'), d=$fromAI('descricao','Descrição curta da movimentação'); const s=[t,v,String(c||'').trim().toLowerCase(),String(d||'').trim().toLowerCase()].join('|');let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const ch=s.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return (4294967296*(2097151&h2)+(h1>>>0)).toString(16); })() }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Registra uma receita ou despesa em reais (BRL) do cliente. Retorna a linha criada quando salvou. Erro de chave duplicada (idempotency_key) significa que já estava registrado. O telefone é automático."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "f5c497d0-d63a-44d6-9e1e-8de21adc75dc",
+      "name": "consultar_movimentacoes",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3296,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "movimentacoes",
+        "returnAll": false,
+        "limit": "={{ $fromAI('mes','Mês AAAA-MM; vazio para as 30 mais recentes','string','') ? 200 : 30 }}",
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + ($fromAI('mes','Mês AAAA-MM; vazio para as 30 mais recentes','string','') ? '&mes=eq.' + encodeURIComponent($fromAI('mes','Mês AAAA-MM; vazio para as 30 mais recentes','string','')) : '') + '&order=data.desc,created_at.desc' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista movimentações do cliente, mais recentes primeiro. Com mês (AAAA-MM) traz o mês inteiro (até 200); sem mês, as 30 mais recentes."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "78f2914c-d2c6-4ff2-b149-180f7b4c8792",
+      "name": "saldo_total",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3424,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "vw_saldo",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Saldo geral do cliente (receitas, despesas e saldo de todos os tempos, em reais)."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "b24a3fe2-7eb7-4f9a-a52b-c16ff9faef1f",
+      "name": "resumo_mensal",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3552,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "vw_resumo_mensal",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&mes=eq.' + encodeURIComponent($fromAI('mes','Mês AAAA-MM; use o mês atual se o cliente não disser','string','') || $('Normalizar mensagem').first().json.mes) }}",
+        "descriptionType": "manual",
+        "toolDescription": "Resumo de um mês: receitas, despesas e total por categoria, em reais."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "2f0ca72b-11c9-4187-8f02-9005c57609ea",
+      "name": "consultar_orcamentos",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3680,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "orcamentos",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista os orçamentos (limite mensal por categoria) do cliente. Use antes de salvar ou atualizar e para comparar com o gasto."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "5505e92b-0ffe-48b7-bfb7-5617078ea726",
+      "name": "salvar_orcamento",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3808,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "orcamentos",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria de despesa do orçamento. Ex: Alimentação') }}"
+            },
+            {
+              "fieldId": "limite_mensal",
+              "fieldValue": "={{ $fromAI('limite_mensal','Limite mensal em reais, número com ponto decimal. Ex: 800.00','number') }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cria um orçamento novo (limite mensal em reais, válido para todos os meses) para uma categoria que ainda não tem orçamento. Se já existir, use atualizar_orcamento."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "f8d10f83-74a1-4996-9172-1a334a4a6a3d",
+      "name": "atualizar_orcamento",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        3936,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "orcamentos",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&mes=is.null&categoria=eq.' + encodeURIComponent($fromAI('categoria','Categoria exatamente como aparece em consultar_orcamentos')) }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "limite_mensal",
+              "fieldValue": "={{ $fromAI('limite_mensal','Novo limite mensal em reais, número com ponto decimal. Ex: 900.00','number') }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Atualiza o limite mensal em reais de um orçamento que já existe para a categoria (confirme com consultar_orcamentos)."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "3dd4f25f-c7cb-42a6-a76d-3ad63919ea93",
+      "name": "cadastrar_conta_a_pagar",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        4064,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "contas_a_pagar",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $fromAI('descricao','Nome da conta. Ex: Conta de luz') }}"
+            },
+            {
+              "fieldId": "valor",
+              "fieldValue": "={{ $fromAI('valor','Valor em reais, número com ponto decimal. Ex: 189.90','number') }}"
+            },
+            {
+              "fieldId": "vencimento",
+              "fieldValue": "={{ $fromAI('vencimento','Data de vencimento no formato AAAA-MM-DD') }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria da conta. Ex: Contas, Moradia, Educação') }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "pendente"
+            },
+            {
+              "fieldId": "idempotency_key",
+              "fieldValue": "={{ 'wa:' + $('Normalizar mensagem').first().json.message_id + ':' + (() => { const s=[String($fromAI('descricao','Nome da conta. Ex: Conta de luz')||'').trim().toLowerCase(),$fromAI('valor','Valor em reais, número com ponto decimal. Ex: 189.90','number'),$fromAI('vencimento','Data de vencimento no formato AAAA-MM-DD')].join('|');let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const ch=s.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return (4294967296*(2097151&h2)+(h1>>>0)).toString(16); })() }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cadastra uma conta a pagar (pendente) em reais com vencimento. Retorna a linha criada quando salvou. Erro de chave duplicada (idempotency_key) significa que esta mesma conta já estava cadastrada. O telefone é automático."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "cafa0213-8f13-476a-ab48-09fe6cfb117f",
+      "name": "consultar_contas_a_pagar",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        4192,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "contas_a_pagar",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&status=eq.pendente&order=vencimento.asc' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista as contas a pagar pendentes do cliente, por vencimento. Cada conta traz o id usado em marcar_conta_como_paga."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "554730fe-280c-4ccf-be20-6b51982ac55e",
+      "name": "marcar_conta_como_paga",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        4320,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "contas_a_pagar",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + encodeURIComponent($fromAI('id_conta','Campo id (uuid) da conta, obtido em consultar_contas_a_pagar')) + '&telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&status=eq.pendente' }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "paga"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Marca uma conta PENDENTE como paga (o banco cria a despesa e preenche a data de pagamento). Use o id de consultar_contas_a_pagar. Se não retornar nenhuma linha, a conta já estava paga ou não existe: não confirme o pagamento."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "c70e0d0a-4a9e-45cc-96ca-e38a589c2ced",
+      "name": "cadastrar_recorrente",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        4448,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "lancamentos_recorrentes",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Normalizar mensagem').first().json.telefone }}"
+            },
+            {
+              "fieldId": "tipo",
+              "fieldValue": "={{ $fromAI('tipo','receita ou despesa') }}"
+            },
+            {
+              "fieldId": "valor",
+              "fieldValue": "={{ $fromAI('valor','Valor em reais, número com ponto decimal. Ex: 1500.00','number') }}"
+            },
+            {
+              "fieldId": "categoria",
+              "fieldValue": "={{ $fromAI('categoria','Categoria da lista do sistema. Ex: Salário, Moradia, Contas, Software') }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $fromAI('descricao','Nome curto do lançamento recorrente. Ex: Salário, Aluguel, Internet') }}"
+            },
+            {
+              "fieldId": "frequencia",
+              "fieldValue": "={{ $fromAI('frequencia','Frequência: mensal, semanal, quinzenal ou anual. Padrão mensal') }}"
+            },
+            {
+              "fieldId": "proxima_execucao",
+              "fieldValue": "={{ $fromAI('proxima_execucao','Próxima data em que ocorre, a partir de hoje, no formato AAAA-MM-DD') }}"
+            },
+            {
+              "fieldId": "ativo",
+              "fieldValue": "true"
+            },
+            {
+              "fieldId": "idempotency_key",
+              "fieldValue": "={{ 'wa:' + $('Normalizar mensagem').first().json.message_id + ':' + (() => { const s=[String($fromAI('descricao','Nome curto do lançamento recorrente. Ex: Salário, Aluguel, Internet')||'').trim().toLowerCase(),$fromAI('valor','Valor em reais, número com ponto decimal. Ex: 1500.00','number'),$fromAI('frequencia','Frequência: mensal, semanal, quinzenal ou anual. Padrão mensal')].join('|');let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const ch=s.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return (4294967296*(2097151&h2)+(h1>>>0)).toString(16); })() }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cadastra uma receita ou despesa recorrente (salário, aluguel, internet, assinaturas) em reais. Retorna a linha criada quando salvou. O telefone é automático."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "85ede86c-d62a-4bec-bcf1-fd9cc4eeb295",
+      "name": "consultar_recorrentes",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        4576,
+        336
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "lancamentos_recorrentes",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Normalizar mensagem').first().json.telefone + ',' + $('Normalizar mensagem').first().json.telefone_alt + ')' + '&ativo=eq.true&order=proxima_execucao.asc' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista as receitas e despesas recorrentes ativas do cliente, pela próxima data."
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "8277874c-f68b-4cbc-9d50-fdd22db6c4f2",
+      "name": "gerenciar_agenda",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        4704,
+        336
+      ],
+      "parameters": {
+        "description": "Delega pedidos de agenda e compromissos (agendar, consultar, remarcar ou cancelar compromissos pessoais) para o Agente de Agenda dedicado. Passe o pedido completo em texto e confirmar_conflito=true apenas se o cliente já confirmou explicitamente agendar mesmo havendo conflito de horário.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "g6a84rRrWOoUuHfm",
+          "cachedResultName": "FINALZAP - Agente de Agenda"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "pedido": "={{ $fromAI('pedido', 'Resumo completo do pedido de agenda do cliente (título, data, hora início/fim, local ou consulta/remarcação/cancelamento)', 'string') }}",
+            "confirmar_conflito": "={{ $fromAI('confirmar_conflito', 'Use true somente após o cliente confirmar explicitamente que deseja agendar mesmo com conflito de horário; caso contrário false', 'boolean', false) }}",
+            "telefone": "={{ $('Normalizar mensagem').first().json.telefone }}",
+            "telefone_alt": "={{ $('Normalizar mensagem').first().json.telefone_alt }}",
+            "hoje": "={{ $('Normalizar mensagem').first().json.hoje }}",
+            "agora_sp": "={{ $('Normalizar mensagem').first().json.agora_sp }}",
+            "dia_semana": "={{ $('Normalizar mensagem').first().json.dia_semana }}",
+            "message_id": "={{ $('Normalizar mensagem').first().json.message_id }}"
+          },
+          "schema": [
+            {
+              "id": "pedido",
+              "displayName": "pedido",
+              "required": true,
+              "type": "string",
+              "display": true
+            },
+            {
+              "id": "confirmar_conflito",
+              "displayName": "confirmar_conflito",
+              "required": false,
+              "type": "boolean",
+              "display": true
+            },
+            {
+              "id": "telefone",
+              "displayName": "telefone",
+              "required": true,
+              "type": "string",
+              "display": false
+            },
+            {
+              "id": "telefone_alt",
+              "displayName": "telefone_alt",
+              "required": true,
+              "type": "string",
+              "display": false
+            },
+            {
+              "id": "hoje",
+              "displayName": "hoje",
+              "required": true,
+              "type": "string",
+              "display": false
+            },
+            {
+              "id": "agora_sp",
+              "displayName": "agora_sp",
+              "required": true,
+              "type": "string",
+              "display": false
+            },
+            {
+              "id": "dia_semana",
+              "displayName": "dia_semana",
+              "required": true,
+              "type": "string",
+              "display": false
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": true,
+              "type": "string",
+              "display": false
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f5db6a64-54c9-4226-8b54-043fc110b2a6",
+      "name": "cancelar_assinatura",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        4832,
+        336
+      ],
+      "parameters": {
+        "description": "Consulta ou efetiva o cancelamento real da assinatura FINALZAP na Hotmart para interromper cobranças futuras. Use apenas quando o cliente pedir explicitamente para cancelar a assinatura/plano do FINALZAP (NUNCA para compromissos de agenda nem contas a pagar). Na primeira solicitação, SEMPRE chame com confirmacao_explicita=false para consultar os dados reais e pedir confirmação ao cliente. Só chame com confirmacao_explicita=true depois que o cliente responder confirmando explicitamente na conversa. Nunca confirme cancelamento sem receber cancelado=true desta ferramenta.",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "cachedResultName": "FINALZAP - Cancelar Assinatura Hotmart",
+          "mode": "id",
+          "value": "c3Pv5Uvyx0lA2v48"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "schema": [
+            {
+              "display": true,
+              "displayName": "confirmacao_explicita",
+              "id": "confirmacao_explicita",
+              "required": false,
+              "type": "boolean"
+            },
+            {
+              "display": false,
+              "displayName": "telefone",
+              "id": "telefone",
+              "required": true,
+              "type": "string"
+            },
+            {
+              "display": false,
+              "displayName": "telefone_alt",
+              "id": "telefone_alt",
+              "required": true,
+              "type": "string"
+            }
+          ],
+          "value": {
+            "confirmacao_explicita": "={{ $fromAI('confirmacao_explicita', 'Use false na primeira solicitação para checar a assinatura e pedir confirmação; use true SOMENTE depois que o cliente confirmar explicitamente o cancelamento na mensagem seguinte.', 'boolean', false) }}",
+            "telefone": "={{ $('Normalizar mensagem').first().json.telefone }}",
+            "telefone_alt": "={{ $('Normalizar mensagem').first().json.telefone_alt }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "c6086b4c-c457-4833-a3b3-c3e2737d08fe",
+      "name": "Responder no WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4912,
+        112
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://meu-waha.xiekee.easypanel.host/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: $json.output }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "id": "aa57c3dc-4455-449f-a08f-3c65c13bffac",
+      "name": "Baixar áudio",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2464,
+        176
+      ],
+      "parameters": {
+        "url": "={{ $('Normalizar mensagem').first().json.audio_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "05d52d21-3b5a-45ec-accc-7f06540ac6a2",
+      "name": "Transcrever áudio",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2688,
+        176
+      ],
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {
+          "language": "pt"
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "wEfXskFJTAKccNso",
+          "name": "OpenAI Jarvis"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "27811046-f781-4989-ad25-6d5ebf120b41",
+      "name": "Responder tipo não suportado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        368
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://meu-waha.xiekee.easypanel.host/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: 'Por enquanto eu só entendo mensagens de texto e áudio. Pode me mandar o que precisa por texto? 😊' }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "id": "41f7186b-a632-4e55-9064-c1e7b20bc1c9",
+      "name": "Enviar convite de assinatura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1568,
+        368
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://meu-waha.xiekee.easypanel.host/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: \"Olá! 👋💚 Bem-vindo ao FINALZAP!\\n\\nNão encontramos uma assinatura ativa vinculada a este WhatsApp.\\n\\n💰 Assine por R$ 19,90/mês para controlar suas despesas, receitas, contas e agenda.\\n\\nFaça sua assinatura aqui:\\nhttps://pay.hotmart.com/N108346496T\\n\\nSe você já assinou, entre em contato para verificarmos seu acesso.\" }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "id": "d71dec7d-2920-4adb-84de-917533f8ec29",
+      "name": "Todo dia às 8h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        592
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "29bc7b59-9882-4267-9580-5fa7e63eb88e",
+      "name": "Contas a lembrar",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        592
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "contas_a_pagar",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'status=eq.pendente&or=(and(vencimento.gte.' + DateTime.now().setZone('America/Sao_Paulo').toFormat('yyyy-MM-dd') + ',vencimento.lte.' + DateTime.now().setZone('America/Sao_Paulo').plus({days:3}).toFormat('yyyy-MM-dd') + ',or(lembrete_enviado_em.is.null,lembrete_enviado_em.lt.' + DateTime.now().setZone('America/Sao_Paulo').toFormat('yyyy-MM-dd') + 'T00:00:00-03:00)),and(vencimento.lt.' + DateTime.now().setZone('America/Sao_Paulo').toFormat('yyyy-MM-dd') + ',lembrete_enviado_em.is.null))&order=vencimento.asc' }}"
+      },
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "5bfc5bc8-8fec-410c-8a48-07d2f65c24f3",
+      "name": "Assinaturas ativas",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        448,
+        592
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "assinaturas",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "status=in.(Ativo,Cancelado)"
+      },
+      "executeOnce": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "e85689d7-7e7f-40b9-b99b-234430f312e8",
+      "name": "Perfis",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        672,
+        592
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "perfis",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "select=telefone,nome"
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "d7c417c0-837c-416a-9b9a-a796d7d5a8dc",
+      "name": "Montar lembretes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        592
+      ],
+      "parameters": {
+        "jsCode": "const canon = (t) => { let d = String(t || '').replace(/\\D/g, '').replace(/^0+/, ''); if (d.length === 10 || d.length === 11) d = '55' + d; if (d.length === 12 && d.startsWith('55') && /[6-9]/.test(d[4])) d = d.slice(0, 4) + '9' + d.slice(4); return d; };\nconst agora = new Date();\nconst ativos = new Set($('Assinaturas ativas').all().map(i => i.json).filter(r => (r.status === 'Ativo' && (!r.data_vencimento || new Date(r.data_vencimento) > agora)) || (r.status === 'Cancelado' && r.data_vencimento && new Date(r.data_vencimento) > agora)).map(r => canon(r.telefone)));\nconst nomes = {};\nfor (const p of $input.all()) if (p.json.telefone) nomes[canon(p.json.telefone)] = p.json.nome;\nconst hoje = DateTime.now().setZone('America/Sao_Paulo').startOf('day');\nconst brl = (n) => Number(n).toFixed(2).replace('.', ',').replace(/\\B(?=(\\d{3})+,)/g, '.');\nconst out = [];\nfor (const it of $('Contas a lembrar').all()) {\n  const c = it.json;\n  if (!c.id || !ativos.has(canon(c.telefone))) continue;\n  const dias = Math.round(DateTime.fromISO(String(c.vencimento).slice(0, 10), { zone: 'America/Sao_Paulo' }).startOf('day').diff(hoje, 'days').days);\n  const quando = dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : DateTime.fromISO(String(c.vencimento).slice(0, 10)).toFormat('dd/MM/yyyy');\n  const nome = String(nomes[canon(c.telefone)] || '').trim().split(/\\s+/)[0] || 'cliente';\n  out.push({ json: { telefone: c.telefone, conta_id: c.id, Menssage: `Olá, ${nome}! Lembrete do FinalZap: ${c.descricao} de R$ ${brl(c.valor)} ${dias < 0 ? \"venceu em\" : \"vence\"} ${quando}.`, vencimento: c.vencimento, tipo_lembrete: dias < 0 ? \"conta_vencida\" : \"vencimento_proximo\" } });\n}\nreturn out;"
+      }
+    },
+    {
+      "id": "12d0240d-1ce3-4757-9b8f-076b67c0b111",
+      "name": "Enviar lembrete no WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1120,
+        592
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://meu-waha.xiekee.easypanel.host/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Montar lembretes').item.json.telefone + '@c.us', text: $json.Menssage }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2
+    },
+    {
+      "id": "80796f63-cbad-401a-99c4-8bb4e7e7c612",
+      "name": "Marcar lembrete enviado",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        592
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "contas_a_pagar",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + $('Montar lembretes').item.json.conta_id }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "lembrete_enviado_em",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "b8f3ce17-afe5-44d2-a8b6-dbc71547b8ce",
+      "name": "Registrar log do lembrete",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        592
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "logs_lembrete",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Montar lembretes').item.json.telefone }}"
+            },
+            {
+              "fieldId": "conta_id",
+              "fieldValue": "={{ $('Montar lembretes').item.json.conta_id }}"
+            },
+            {
+              "fieldId": "tipo_lembrete",
+              "fieldValue": "={{ $('Montar lembretes').item.json.tipo_lembrete }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "enviado"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "cb24206c-432b-4f58-a5d3-acb8af48f826",
+      "name": "Registrar falha do lembrete",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        784
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "logs_lembrete",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Montar lembretes').item.json.telefone }}"
+            },
+            {
+              "fieldId": "conta_id",
+              "fieldValue": "={{ $('Montar lembretes').item.json.conta_id }}"
+            },
+            {
+              "fieldId": "tipo_lembrete",
+              "fieldValue": "={{ $('Montar lembretes').item.json.tipo_lembrete }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "falhou"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "f1c0de00-0000-4000-8000-00000000e001",
+      "name": "Responder instabilidade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2240,
+        688
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://meu-waha.xiekee.easypanel.host/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ session: 'default', chatId: $('Normalizar mensagem').first().json.chat_id, text: 'Tive uma instabilidade agora e não consegui concluir. Tente de novo em alguns minutos. 🙏' }) }}",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6zD5FMHPIMgyYzW4",
+          "name": "Waha api"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 2
+    }
+  ],
+  "connections": {
+    "Mensagem no WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "É mensagem de usuário?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É mensagem de usuário?": {
+      "main": [
+        [
+          {
+            "node": "Normalizar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar mensagem": {
+      "main": [
+        [
+          {
+            "node": "É código de vínculo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É código de vínculo?": {
+      "main": [
+        [
+          {
+            "node": "Vincular WhatsApp (RPC)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Buscar assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vincular WhatsApp (RPC)": {
+      "main": [
+        [
+          {
+            "node": "Responder vínculo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder instabilidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar assinatura": {
+      "main": [
+        [
+          {
+            "node": "Avaliar assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder instabilidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avaliar assinatura": {
+      "main": [
+        [
+          {
+            "node": "Assinatura ativa?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assinatura ativa?": {
+      "main": [
+        [
+          {
+            "node": "Recorrentes existentes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enviar convite de assinatura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recorrentes existentes": {
+      "main": [
+        [
+          {
+            "node": "Movimentações existentes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Movimentações existentes": {
+      "main": [
+        [
+          {
+            "node": "Tipo da mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tipo da mensagem": {
+      "main": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Baixar áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder tipo não suportado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assistente FINALZAP": {
+      "main": [
+        [
+          {
+            "node": "Responder no WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder instabilidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo OpenAI": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória da conversa": {
+      "ai_memory": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "registrar_movimentacao": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_movimentacoes": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "saldo_total": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resumo_mensal": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_orcamentos": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "salvar_orcamento": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "atualizar_orcamento": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cadastrar_conta_a_pagar": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_contas_a_pagar": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "marcar_conta_como_paga": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cadastrar_recorrente": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_recorrentes": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gerenciar_agenda": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancelar_assinatura": {
+      "ai_tool": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Baixar áudio": {
+      "main": [
+        [
+          {
+            "node": "Transcrever áudio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder instabilidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrever áudio": {
+      "main": [
+        [
+          {
+            "node": "Assistente FINALZAP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Responder instabilidade",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Todo dia às 8h": {
+      "main": [
+        [
+          {
+            "node": "Contas a lembrar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Contas a lembrar": {
+      "main": [
+        [
+          {
+            "node": "Assinaturas ativas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assinaturas ativas": {
+      "main": [
+        [
+          {
+            "node": "Perfis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perfis": {
+      "main": [
+        [
+          {
+            "node": "Montar lembretes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar lembretes": {
+      "main": [
+        [
+          {
+            "node": "Enviar lembrete no WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar lembrete no WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Marcar lembrete enviado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Registrar falha do lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Marcar lembrete enviado": {
+      "main": [
+        [
+          {
+            "node": "Registrar log do lembrete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "binaryMode": "separate"
+  },
+  "description": "Fluxo do FINALZAP no WhatsApp via WAHA (HTTP Request) + Supabase. Mesma lógica do finalzap-supabase.json; só troca a camada de WhatsApp."
+}

@@ -1,0 +1,352 @@
+{
+  "name": "FINALZAP - Agente de Agenda",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            { "name": "pedido", "type": "string" },
+            { "name": "confirmar_conflito", "type": "boolean" },
+            { "name": "telefone", "type": "string" },
+            { "name": "telefone_alt", "type": "string" },
+            { "name": "hoje", "type": "string" },
+            { "name": "agora_sp", "type": "string" },
+            { "name": "dia_semana", "type": "string" },
+            { "name": "message_id", "type": "string" }
+          ]
+        }
+      },
+      "id": "ag-trigger-01",
+      "name": "Quando chamado pelo FINALZAP",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Quando chamado pelo FINALZAP').first().json.pedido }}",
+        "options": {
+          "systemMessage": "=FINALZAP AGENDA: AGENTE DE COMPROMISSOS\nVocê é o especialista de agenda do FINALZAP. Gerencia exclusivamente compromissos pessoais (criar, consultar, remarcar e cancelar). Nunca crie movimentações financeiras ou contas a pagar. Responda sempre em português brasileiro, curto, claro e sem detalhes técnicos (IDs, SQL, tabelas, erros brutos).\n\nCONTEXTO TEMPORAL E REGRAS DE ACESSO\n- Hoje é {{ $('Quando chamado pelo FINALZAP').first().json.hoje }} ({{ $('Quando chamado pelo FINALZAP').first().json.dia_semana }}). Agora em Brasília (America/Sao_Paulo, -03:00): {{ $('Quando chamado pelo FINALZAP').first().json.agora_sp }}.\n- confirmar_conflito recebido neste pedido: {{ $('Quando chamado pelo FINALZAP').first().json.confirmar_conflito ? 'SIM' : 'NÃO' }}.\n- Nunca peça nem informe o telefone do cliente: as ferramentas já recebem automaticamente.\n\nHORÁRIOS E FUSO\n- Todo horário nas ferramentas usa ISO 8601 com fuso -03:00 (America/Sao_Paulo), ex.: 2026-12-10T15:00:00-03:00.\n- Para agendar ou remarcar, precisa de título, data e hora de início. Se faltar data ou hora (ex.: só disse \"amanhã\" sem horário), pergunte só o que falta antes de gravar.\n- Se o cliente não informar hora de término ou duração, use duração padrão de 60 minutos (fim = inicio + 60 min).\n- Nunca grave fim <= inicio.\n\nCONFLITOS DE HORÁRIO\n- O sistema bloqueia por padrão horários que sobrepõem outro compromisso agendado (CONFLITO_HORARIO).\n- Se agendar_compromisso ou remarcar_compromisso retornar CONFLITO_HORARIO: NÃO tente forçar. Informe claramente o título e horário em conflito e pergunte se o cliente prefere outro horário ou quer agendar mesmo assim.\n- Só grave com conflito quando confirmar_conflito estiver SIM (após confirmação explícita do cliente).\n- Horários adjacentes (ex.: 14h–15h e 15h–16h) e compromissos cancelados/concluídos não geram conflito.\n\nCONSULTAS, REMARCAÇÃO E CANCELAMENTO\n- Consultas (\"o que tenho hoje?\", \"minha agenda da semana\"): chame consultar_compromissos filtrando por data_inicio/data_fim em AAAA-MM-DD (ou vazio para ver todos os próximos agendados) e liste em ordem cronológica.\n- Remarcar ou cancelar: SEMPRE chame consultar_compromissos primeiro para encontrar o compromisso real.\n  - Se não houver candidato correspondente, informe que não encontrou compromisso agendado compatível.\n  - Se houver 2 ou mais candidatos parecidos, liste-os e pergunte qual o cliente quer alterar antes de executar.\n  - Só confirme remarcação ou cancelamento depois que a ferramenta retornar a linha atualizada; retorno vazio significa que o compromisso não existe ou já estava cancelado.\n\nIDEMPOTÊNCIA\n- Se agendar_compromisso retornar erro de chave duplicada (duplicate key / 23505 / idempotency_key), o compromisso já foi gravado nesta mensagem: informe que já está agendado e não tente novamente.\n\nMODELO DE RESPOSTA\n- Agendado: \"📅 Compromisso agendado!\" com título, data (dd/mm/aaaa), horário (HH:MM às HH:MM) e local (se houver).\n- Remarcado: \"🔄 Compromisso remarcado!\" com título, nova data e novo horário.\n- Cancelado: \"❌ Compromisso cancelado:\" com título, data e horário."
+        }
+      },
+      "id": "ag-agent-01",
+      "name": "Agente de Agenda",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [520, 300]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5.4-mini",
+          "cachedResultName": "gpt-5.4-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "id": "ag-model-01",
+      "name": "Modelo OpenAI (Agenda)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [360, 560],
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "Gateway credits",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ 'agenda:' + $('Quando chamado pelo FINALZAP').first().json.telefone }}",
+        "contextWindowLength": 10
+      },
+      "id": "ag-memory-01",
+      "name": "Memória da Agenda",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.4,
+      "position": [520, 560]
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "compromissos",
+        "returnAll": false,
+        "limit": 30,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Quando chamado pelo FINALZAP').first().json.telefone + ',' + $('Quando chamado pelo FINALZAP').first().json.telefone_alt + ')&status=eq.agendado' + ($fromAI('data_inicio','Data inicial no formato AAAA-MM-DD; vazio para não filtrar início','string','') ? '&inicio=gte.' + encodeURIComponent(String($fromAI('data_inicio','Data inicial no formato AAAA-MM-DD; vazio para não filtrar início','string','')).slice(0,10) + 'T00:00:00-03:00') : '') + ($fromAI('data_fim','Data final no formato AAAA-MM-DD; vazio para não filtrar fim','string','') ? '&inicio=lte.' + encodeURIComponent(String($fromAI('data_fim','Data final no formato AAAA-MM-DD; vazio para não filtrar fim','string','')).slice(0,10) + 'T23:59:59-03:00') : '') + '&order=inicio.asc' }}",
+        "descriptionType": "manual",
+        "toolDescription": "Lista os compromissos agendados do usuário em ordem cronológica (traz id, titulo, inicio, fim, local, descricao). Use antes de remarcar ou cancelar para descobrir o id exato, ou para responder consultas de agenda."
+      },
+      "id": "ag-tool-get-01",
+      "name": "consultar_compromissos",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [380, 780],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "create",
+        "tableId": "compromissos",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telefone",
+              "fieldValue": "={{ $('Quando chamado pelo FINALZAP').first().json.telefone }}"
+            },
+            {
+              "fieldId": "titulo",
+              "fieldValue": "={{ $fromAI('titulo', 'Título curto do compromisso. Ex: Dentista, Reunião com João', 'string') }}"
+            },
+            {
+              "fieldId": "inicio",
+              "fieldValue": "={{ $fromAI('inicio', 'Data e hora de início em ISO 8601 com fuso -03:00. Ex: 2026-12-10T15:00:00-03:00', 'string') }}"
+            },
+            {
+              "fieldId": "fim",
+              "fieldValue": "={{ $fromAI('fim', 'Data e hora de término em ISO 8601 com fuso -03:00 (padrão +60 min após inicio). Ex: 2026-12-10T16:00:00-03:00', 'string') }}"
+            },
+            {
+              "fieldId": "local",
+              "fieldValue": "={{ $fromAI('local', 'Local do compromisso se informado; vazio se não informado', 'string', '') || null }}"
+            },
+            {
+              "fieldId": "descricao",
+              "fieldValue": "={{ $fromAI('descricao', 'Observações opcionais; vazio se não informado', 'string', '') || null }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "agendado"
+            },
+            {
+              "fieldId": "permitir_conflito",
+              "fieldValue": "={{ Boolean($('Quando chamado pelo FINALZAP').first().json.confirmar_conflito) }}"
+            },
+            {
+              "fieldId": "fonte",
+              "fieldValue": "whatsapp"
+            },
+            {
+              "fieldId": "idempotency_key",
+              "fieldValue": "={{ 'wa:' + $('Quando chamado pelo FINALZAP').first().json.message_id + ':' + (() => { const s=[String($fromAI('titulo','Título curto do compromisso. Ex: Dentista, Reunião com João','string')||'').trim().toLowerCase(),String($fromAI('inicio','Data e hora de início em ISO 8601 com fuso -03:00. Ex: 2026-12-10T15:00:00-03:00','string')||''),String($fromAI('fim','Data e hora de término em ISO 8601 com fuso -03:00 (padrão +60 min após inicio). Ex: 2026-12-10T16:00:00-03:00','string')||'')].join('|');let h1=0xdeadbeef,h2=0x41c6ce57;for(let i=0;i<s.length;i++){const ch=s.charCodeAt(i);h1=Math.imul(h1^ch,2654435761);h2=Math.imul(h2^ch,1597334677);}h1=Math.imul(h1^(h1>>>16),2246822507)^Math.imul(h2^(h2>>>13),3266489909);h2=Math.imul(h2^(h2>>>16),2246822507)^Math.imul(h1^(h1>>>13),3266489909);return (4294967296*(2097151&h2)+(h1>>>0)).toString(16); })() }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cria um compromisso na agenda do usuário. Use apenas com título, data e hora de início em America/Sao_Paulo (-03:00); se faltar término, calcule +60 minutos. Erro CONFLITO_HORARIO significa choque de horário (informe e peça confirmação antes). Erro 23505 (idempotency_key) significa que já estava agendado."
+      },
+      "id": "ag-tool-create-01",
+      "name": "agendar_compromisso",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [540, 780],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "compromissos",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + encodeURIComponent($fromAI('id_compromisso', 'Campo id (uuid) do compromisso obtido em consultar_compromissos', 'string')) + '&telefone=in.(' + $('Quando chamado pelo FINALZAP').first().json.telefone + ',' + $('Quando chamado pelo FINALZAP').first().json.telefone_alt + ')&status=eq.agendado' }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "inicio",
+              "fieldValue": "={{ $fromAI('inicio', 'Nova data e hora de início em ISO 8601 -03:00', 'string') }}"
+            },
+            {
+              "fieldId": "fim",
+              "fieldValue": "={{ $fromAI('fim', 'Nova data e hora de término em ISO 8601 -03:00', 'string') }}"
+            },
+            {
+              "fieldId": "permitir_conflito",
+              "fieldValue": "={{ Boolean($('Quando chamado pelo FINALZAP').first().json.confirmar_conflito) }}"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Remarca data e horário de um compromisso agendado. Consulte consultar_compromissos antes para obter o id exato. Se não retornar linha, o compromisso não existe ou já foi cancelado/concluído."
+      },
+      "id": "ag-tool-reschedule-01",
+      "name": "remarcar_compromisso",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [700, 780],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "compromissos",
+        "dataToSend": "defineBelow",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + encodeURIComponent($fromAI('id_compromisso', 'Campo id (uuid) do compromisso obtido em consultar_compromissos', 'string')) + '&telefone=in.(' + $('Quando chamado pelo FINALZAP').first().json.telefone + ',' + $('Quando chamado pelo FINALZAP').first().json.telefone_alt + ')&status=eq.agendado' }}",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "cancelado"
+            }
+          ]
+        },
+        "descriptionType": "manual",
+        "toolDescription": "Cancela um compromisso agendado (muda status para cancelado). Consulte consultar_compromissos antes para obter o id exato. Se não retornar linha, o compromisso já estava cancelado ou não foi encontrado."
+      },
+      "id": "ag-tool-cancel-01",
+      "name": "cancelar_compromisso",
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [860, 780],
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase FINALZAP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "resp-1",
+              "name": "resposta",
+              "value": "={{ $('Agente de Agenda').first().json.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "id": "ag-return-01",
+      "name": "Retornar resposta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [840, 300]
+    }
+  ],
+  "connections": {
+    "Quando chamado pelo FINALZAP": {
+      "main": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente de Agenda": {
+      "main": [
+        [
+          {
+            "node": "Retornar resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modelo OpenAI (Agenda)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memória da Agenda": {
+      "ai_memory": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar_compromissos": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "agendar_compromisso": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "remarcar_compromisso": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "cancelar_compromisso": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente de Agenda",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo",
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

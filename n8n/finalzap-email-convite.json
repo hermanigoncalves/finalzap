@@ -31,6 +31,12 @@
               "leftValue": "={{ $env.FINALZAP_EMAIL_SECRET }}",
               "rightValue": "",
               "operator": { "type": "string", "operation": "notEmpty", "singleValue": true }
+            },
+            {
+              "id": "b2000000-0000-4000-8000-000000000003",
+              "leftValue": "={{ String(($json.body && $json.body.link) ?? '') }}",
+              "rightValue": "https://",
+              "operator": { "type": "string", "operation": "startsWith" }
             }
           ],
           "combinator": "and"
@@ -47,7 +53,7 @@
       "parameters": {
         "sendTo": "={{ $('Receber convite').item.json.body.email }}",
         "subject": "Sua assinatura do FinalZap foi confirmada 🎉",
-        "message": "=<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1f2937;\"><h2 style=\"color:#166534;margin:0 0 16px;\">Assinatura confirmada!</h2><p>Olá{{ $('Receber convite').item.json.body.nome ? ', ' + $('Receber convite').item.json.body.nome : '' }}! Recebemos o seu pagamento e o seu acesso ao <strong>FinalZap</strong>, o assistente financeiro no WhatsApp, já está liberado.</p><p>Falta só criar a sua conta. Clique no botão abaixo e escolha <strong>Continuar com Google</strong>:</p><p style=\"text-align:center;margin:28px 0;\"><a href=\"{{ $('Receber convite').item.json.body.link }}\" style=\"background:#22c55e;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:8px;display:inline-block;\">Criar minha conta</a></p><p style=\"font-size:14px;color:#4b5563;\"><strong>Importante:</strong> use a conta Google com o <strong>mesmo e-mail da compra</strong> ({{ $('Receber convite').item.json.body.email }}). Se preferir, você também pode definir uma senha na mesma tela.</p><p style=\"font-size:12px;color:#6b7280;margin-top:32px;\">Se o botão não funcionar, copie e cole este link no navegador:<br><span style=\"word-break:break-all;\">{{ $('Receber convite').item.json.body.link }}</span></p><p style=\"font-size:12px;color:#6b7280;\">Não reconhece esta compra? Ignore este e-mail.</p></div>",
+        "message": "=<div style=\"font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;padding:24px;color:#1f2937;\"><h2 style=\"color:#166534;margin:0 0 16px;\">Assinatura confirmada!</h2><p>Olá{{ $('Receber convite').item.json.body.nome ? ', ' + ((s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;'))($('Receber convite').item.json.body.nome) : '' }}! Recebemos o seu pagamento e o seu acesso ao <strong>FinalZap</strong>, o assistente financeiro no WhatsApp, já está liberado.</p><p>Falta só criar a sua conta. Clique no botão abaixo e escolha <strong>Continuar com Google</strong>:</p><p style=\"text-align:center;margin:28px 0;\"><a href=\"{{ ((s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;'))($('Receber convite').item.json.body.link) }}\" style=\"background:#22c55e;color:#ffffff;text-decoration:none;font-weight:bold;padding:12px 28px;border-radius:8px;display:inline-block;\">Criar minha conta</a></p><p style=\"font-size:14px;color:#4b5563;\"><strong>Importante:</strong> use a conta Google com o <strong>mesmo e-mail da compra</strong> ({{ ((s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;'))($('Receber convite').item.json.body.email) }}). Se preferir, você também pode definir uma senha na mesma tela.</p><p style=\"font-size:12px;color:#6b7280;margin-top:32px;\">Se o botão não funcionar, copie e cole este link no navegador:<br><span style=\"word-break:break-all;\">{{ ((s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;'))($('Receber convite').item.json.body.link) }}</span></p><p style=\"font-size:12px;color:#6b7280;\">Não reconhece esta compra? Ignore este e-mail.</p></div>",
         "options": {}
       },
       "id": "a1000000-0000-4000-8000-000000000003",

@@ -1,0 +1,846 @@
+{
+  "name": "FINALZAP - Cancelar Assinatura Hotmart",
+  "description": "Cancela a assinatura ativa do cliente na Hotmart via API real (send_mail: true), exige confirmação explícita em 2 etapas, sincroniza status Cancelado no Supabase preservando data_vencimento e só confirma sucesso após efetivação.",
+  "nodes": [
+    {
+      "id": "cdc268e2-7408-4e84-9362-42589eecd610",
+      "name": "Quando chamado pelo FINALZAP",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        192
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "telefone",
+              "type": "string"
+            },
+            {
+              "name": "telefone_alt",
+              "type": "string"
+            },
+            {
+              "name": "confirmacao_explicita",
+              "type": "boolean"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "1080da33-2381-4f48-a074-88a730a658f0",
+      "name": "Buscar assinaturas do cliente",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        192
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "getAll",
+        "tableId": "assinaturas",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "={{ 'telefone=in.(' + $('Quando chamado pelo FINALZAP').first().json.telefone + ',' + $('Quando chamado pelo FINALZAP').first().json.telefone_alt + ')&status=in.(Ativo,Cancelado)&order=ultimo_evento_em.desc.nullslast,created_at.desc' }}"
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "0df79feb-a56e-4b7a-915c-9a8d112cb7c7",
+      "name": "Retornar erro técnico",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        608,
+        288
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "err-cancelado",
+              "name": "cancelado",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "err-etapa",
+              "name": "etapa",
+              "value": "erro_consulta",
+              "type": "string"
+            },
+            {
+              "id": "err-precisa",
+              "name": "precisa_confirmacao",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "err-ja",
+              "name": "ja_cancelada",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "err-sync",
+              "name": "sincronizado_banco",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "err-plano",
+              "name": "plano",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "err-venc",
+              "name": "vencimento_formatado",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "err-st",
+              "name": "status_hotmart",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "err-msg",
+              "name": "mensagem",
+              "value": "Não consegui consultar sua assinatura agora. Nenhuma alteração foi feita; tente novamente em alguns minutos.",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cde0eccb-0c0e-49a1-9df5-12ab4365cbea",
+      "name": "Avaliar assinatura e etapa",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        224
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "language": "javaScript",
+        "jsCode": "const entrada = $('Quando chamado pelo FINALZAP').first().json;\nconst confirmado = entrada.confirmacao_explicita === true || entrada.confirmacao_explicita === 'true';\nconst linhas = $input.all().map((i) => i.json).filter((r) => r && r.id);\nconst agora = DateTime.now().setZone('America/Sao_Paulo');\n\nconst fmtData = (iso) => {\n  if (!iso) return null;\n  const dt = DateTime.fromISO(String(iso), { zone: 'utc' }).setZone('America/Sao_Paulo');\n  return dt.isValid ? dt.toFormat('dd/MM/yyyy') : null;\n};\n\nconst vencFutura = (r) => {\n  if (!r.data_vencimento) return null;\n  const dt = DateTime.fromISO(String(r.data_vencimento));\n  return dt.isValid ? dt > agora : false;\n};\n\nconst ativas = linhas.filter((r) => {\n  if (r.status !== 'Ativo') return false;\n  const vf = vencFutura(r);\n  return vf === null || vf === true;\n});\n\nconst ativa = ativas.find((r) => String(r.hotmart_assinante_codigo || '').trim()) || ativas[0] || null;\n\nif (ativa) {\n  const codigoAssinante = String(ativa.hotmart_assinante_codigo || '').trim();\n  const vencimentoFmt = fmtData(ativa.data_vencimento);\n  const plano = ativa.plano || 'Mensal';\n\n  if (!codigoAssinante) {\n    return [{\n      json: {\n        acao: 'sem_codigo_hotmart',\n        cancelado: false,\n        assinatura_id: ativa.id,\n        plano,\n        vencimento_formatado: vencimentoFmt,\n        mensagem: 'Não encontrei o código da sua assinatura na Hotmart para cancelar automaticamente. Cancele diretamente em purchase.hotmart.com ou fale com o suporte.',\n      },\n    }];\n  }\n\n  if (!confirmado) {\n    const detalheAcesso = vencimentoFmt\n      ? `Você continuará com acesso até ${vencimentoFmt} e não haverá novas cobranças.`\n      : 'As cobranças futuras serão interrompidas.';\n    return [{\n      json: {\n        acao: 'pedir_confirmacao',\n        cancelado: false,\n        precisa_confirmacao: true,\n        assinatura_id: ativa.id,\n        plano,\n        vencimento_formatado: vencimentoFmt,\n        mensagem: `Confirma o cancelamento da sua assinatura ${plano} do FINALZAP na Hotmart? ${detalheAcesso} Responda confirmando para eu efetivar o cancelamento.`,\n      },\n    }];\n  }\n\n  return [{\n    json: {\n      acao: 'executar_hotmart',\n      cancelado: false,\n      assinatura_id: ativa.id,\n      subscriber_code: codigoAssinante,\n      plano,\n      data_vencimento: ativa.data_vencimento || null,\n      vencimento_formatado: vencimentoFmt,\n    },\n  }];\n}\n\nconst jaCancelada = linhas.find((r) => r.status === 'Cancelado' && vencFutura(r) === true);\nif (jaCancelada) {\n  const vencimentoFmt = fmtData(jaCancelada.data_vencimento);\n  return [{\n    json: {\n      acao: 'ja_cancelada',\n      cancelado: false,\n      ja_cancelada: true,\n      assinatura_id: jaCancelada.id,\n      plano: jaCancelada.plano || 'Mensal',\n      vencimento_formatado: vencimentoFmt,\n      mensagem: vencimentoFmt\n        ? `Sua assinatura já está cancelada na Hotmart. Você mantém acesso até ${vencimentoFmt} e não haverá novas cobranças.`\n        : 'Sua assinatura já está cancelada e não haverá novas cobranças.',\n    },\n  }];\n}\n\nreturn [{\n  json: {\n    acao: 'nao_encontrada',\n    cancelado: false,\n    plano: '',\n    vencimento_formatado: null,\n    mensagem: 'Não encontrei uma assinatura ativa vinculada a este WhatsApp para cancelar.',\n  },\n}];"
+      }
+    },
+    {
+      "id": "399abf6b-0e64-4ca5-8a18-6dcfa4529a41",
+      "name": "Deve cancelar na Hotmart?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        720,
+        224
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-executar-hotmart",
+              "leftValue": "={{ $('Avaliar assinatura e etapa').first().json.acao }}",
+              "rightValue": "executar_hotmart",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "cond-confirmacao-explicita",
+              "leftValue": "={{ $('Quando chamado pelo FINALZAP').first().json.confirmacao_explicita === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "55d8839d-c33b-423f-89fe-fc8876a80469",
+      "name": "Gerar token Hotmart",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1024,
+        496
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-sec-vlc.hotmart.com/security/oauth/token?grant_type=client_credentials",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpTemplatedCustomAuth",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "58e72993-e4f9-40fd-a0de-f996b366f7f1",
+      "name": "Retornar bloqueio ou confirmação",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1136,
+        192
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "blq-cancelado",
+              "name": "cancelado",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "blq-etapa",
+              "name": "etapa",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.acao }}",
+              "type": "string"
+            },
+            {
+              "id": "blq-precisa",
+              "name": "precisa_confirmacao",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.acao === 'pedir_confirmacao' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "blq-ja",
+              "name": "ja_cancelada",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.acao === 'ja_cancelada' }}",
+              "type": "boolean"
+            },
+            {
+              "id": "blq-sync",
+              "name": "sincronizado_banco",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "blq-plano",
+              "name": "plano",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.plano || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "blq-venc",
+              "name": "vencimento_formatado",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.vencimento_formatado || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "blq-st",
+              "name": "status_hotmart",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "blq-msg",
+              "name": "mensagem",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.mensagem }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b2e6b244-ec61-4968-9934-ce21323910d7",
+      "name": "Retornar falha Hotmart",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1920,
+        512
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fail-cancelado",
+              "name": "cancelado",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "fail-etapa",
+              "name": "etapa",
+              "value": "erro_hotmart",
+              "type": "string"
+            },
+            {
+              "id": "fail-precisa",
+              "name": "precisa_confirmacao",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "fail-ja",
+              "name": "ja_cancelada",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "fail-sync",
+              "name": "sincronizado_banco",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "fail-plano",
+              "name": "plano",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.plano || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-venc",
+              "name": "vencimento_formatado",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.vencimento_formatado || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "fail-st",
+              "name": "status_hotmart",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "fail-msg",
+              "name": "mensagem",
+              "value": "Não foi possível efetivar o cancelamento na Hotmart agora, portanto sua assinatura continua ativa e nenhuma cobrança foi interrompida. Tente novamente em alguns minutos ou cancele diretamente em purchase.hotmart.com.",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "f70ba20d-bc2c-498d-a35d-4eb0270723a2",
+      "name": "Token Hotmart válido?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1248,
+        416
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-token",
+              "leftValue": "={{ $('Gerar token Hotmart').first().json.access_token || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "53e20789-0f54-4b5c-a482-399428dd3354",
+      "name": "Cancelar assinatura na Hotmart",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1472,
+        352
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://developers.hotmart.com/payments/api/v1/subscriptions/' + encodeURIComponent($('Avaliar assinatura e etapa').first().json.subscriber_code) + '/cancel' }}",
+        "authentication": "none",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Gerar token Hotmart').first().json.access_token }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\"send_mail\": true}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "3cef0100-8e50-411e-ab9d-6818e1f32b68",
+      "name": "Hotmart efetivou cancelamento?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1696,
+        272
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-efetivado",
+              "leftValue": "={{ (() => { const resp = $('Cancelar assinatura na Hotmart').first().json; const statusHttp = Number(resp?.statusCode ?? 0); const body = resp?.body ?? resp ?? {}; if (statusHttp < 200 || statusHttp >= 300) return false; if (body?.error || body?.error_description) return false; if (Array.isArray(body?.fail_subscriptions) && body.fail_subscriptions.length > 0) return false; const st = String(body?.status || '').toUpperCase(); return ['INACTIVE', 'CANCELLED_BY_SELLER', 'CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_ADMIN', 'CANCELED_BY_SELLER', 'CANCELED_BY_CUSTOMER', 'CANCELED_BY_ADMIN', 'CANCELLED', 'CANCELED'].includes(st); })() }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "661eac7d-0db1-448b-9b17-68b1f7aba0bf",
+      "name": "Atualizar assinatura no Supabase",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        224
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "tableId": "assinaturas",
+        "filterType": "string",
+        "filterString": "={{ 'id=eq.' + encodeURIComponent($('Avaliar assinatura e etapa').first().json.assinatura_id) + '&telefone=in.(' + $('Quando chamado pelo FINALZAP').first().json.telefone + ',' + $('Quando chamado pelo FINALZAP').first().json.telefone_alt + ')' }}",
+        "dataToSend": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "Cancelado"
+            }
+          ]
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "supabaseApi": {
+          "id": "JrIUL3wJDDjKBQPB",
+          "name": "supabase pros"
+        }
+      }
+    },
+    {
+      "id": "300b814c-1585-46b8-b0ec-9b21c4661862",
+      "name": "Retornar cancelamento efetivado",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2144,
+        128
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok-cancelado",
+              "name": "cancelado",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "ok-etapa",
+              "name": "etapa",
+              "value": "efetivado",
+              "type": "string"
+            },
+            {
+              "id": "ok-precisa",
+              "name": "precisa_confirmacao",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "ok-ja",
+              "name": "ja_cancelada",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "ok-sync",
+              "name": "sincronizado_banco",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "ok-plano",
+              "name": "plano",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.plano || 'Mensal' }}",
+              "type": "string"
+            },
+            {
+              "id": "ok-venc",
+              "name": "vencimento_formatado",
+              "value": "={{ (() => { const dbFmt = $('Avaliar assinatura e etapa').first().json.vencimento_formatado; if (dbFmt) return dbFmt; const raw = $('Cancelar assinatura na Hotmart').first().json?.body?.date_next_charge; if (!raw) return ''; const num = Number(raw); const dt = Number.isFinite(num) && num > 0 ? DateTime.fromMillis(num, { zone: 'utc' }).setZone('America/Sao_Paulo') : DateTime.fromISO(String(raw), { zone: 'utc' }).setZone('America/Sao_Paulo'); return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''; })() }}",
+              "type": "string"
+            },
+            {
+              "id": "ok-st",
+              "name": "status_hotmart",
+              "value": "={{ String($('Cancelar assinatura na Hotmart').first().json?.body?.status || 'INACTIVE') }}",
+              "type": "string"
+            },
+            {
+              "id": "ok-msg",
+              "name": "mensagem",
+              "value": "={{ (() => { const dbFmt = $('Avaliar assinatura e etapa').first().json.vencimento_formatado; const raw = $('Cancelar assinatura na Hotmart').first().json?.body?.date_next_charge; let venc = dbFmt || ''; if (!venc && raw) { const num = Number(raw); const dt = Number.isFinite(num) && num > 0 ? DateTime.fromMillis(num, { zone: 'utc' }).setZone('America/Sao_Paulo') : DateTime.fromISO(String(raw), { zone: 'utc' }).setZone('America/Sao_Paulo'); if (dt.isValid) venc = dt.toFormat('dd/MM/yyyy'); } const acesso = venc ? ' Você mantém acesso até ' + venc + '.' : ''; return 'Assinatura cancelada na Hotmart com sucesso! As cobranças futuras foram interrompidas e a Hotmart enviará a confirmação por e-mail.' + acesso; })() }}",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "6255a5dc-8a94-42b4-9755-41a1429a6921",
+      "name": "Retornar cancelado aguardando sync",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2144,
+        320
+      ],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sync-cancelado",
+              "name": "cancelado",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "sync-etapa",
+              "name": "etapa",
+              "value": "efetivado_sync_pendente",
+              "type": "string"
+            },
+            {
+              "id": "sync-precisa",
+              "name": "precisa_confirmacao",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "sync-ja",
+              "name": "ja_cancelada",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "sync-sync",
+              "name": "sincronizado_banco",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "sync-plano",
+              "name": "plano",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.plano || 'Mensal' }}",
+              "type": "string"
+            },
+            {
+              "id": "sync-venc",
+              "name": "vencimento_formatado",
+              "value": "={{ $('Avaliar assinatura e etapa').first().json.vencimento_formatado || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "sync-st",
+              "name": "status_hotmart",
+              "value": "={{ String($('Cancelar assinatura na Hotmart').first().json?.body?.status || 'INACTIVE') }}",
+              "type": "string"
+            },
+            {
+              "id": "sync-msg",
+              "name": "mensagem",
+              "value": "Assinatura cancelada na Hotmart com sucesso! As cobranças futuras foram interrompidas e a Hotmart enviará a confirmação por e-mail. O status no painel será sincronizado automaticamente em instantes.",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Quando chamado pelo FINALZAP": {
+      "main": [
+        [
+          {
+            "node": "Buscar assinaturas do cliente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar assinaturas do cliente": {
+      "main": [
+        [
+          {
+            "node": "Avaliar assinatura e etapa",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar erro técnico",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avaliar assinatura e etapa": {
+      "main": [
+        [
+          {
+            "node": "Deve cancelar na Hotmart?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deve cancelar na Hotmart?": {
+      "main": [
+        [
+          {
+            "node": "Gerar token Hotmart",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar bloqueio ou confirmação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gerar token Hotmart": {
+      "main": [
+        [
+          {
+            "node": "Token Hotmart válido?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar falha Hotmart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Hotmart válido?": {
+      "main": [
+        [
+          {
+            "node": "Cancelar assinatura na Hotmart",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar falha Hotmart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelar assinatura na Hotmart": {
+      "main": [
+        [
+          {
+            "node": "Hotmart efetivou cancelamento?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar falha Hotmart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hotmart efetivou cancelamento?": {
+      "main": [
+        [
+          {
+            "node": "Atualizar assinatura no Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar falha Hotmart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Atualizar assinatura no Supabase": {
+      "main": [
+        [
+          {
+            "node": "Retornar cancelamento efetivado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retornar cancelado aguardando sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "timezone": "America/Sao_Paulo",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodeGroups": [
+    {
+      "id": "8536ac46-4e5d-4ffb-8af9-44df27f3405b",
+      "name": "Validar assinatura e confirmação",
+      "nodeNames": [
+        "Avaliar assinatura e etapa",
+        "Deve cancelar na Hotmart?"
+      ],
+      "description": "Aplica regra R-001 sobre as assinaturas retornadas e bloqueia chamada à Hotmart sem confirmação explícita."
+    },
+    {
+      "id": "fcaa7e90-e625-487b-80a2-c43d17c18741",
+      "name": "Cancelar na Hotmart e sincronizar",
+      "nodeNames": [
+        "Gerar token Hotmart",
+        "Token Hotmart válido?",
+        "Cancelar assinatura na Hotmart",
+        "Hotmart efetivou cancelamento?",
+        "Retornar falha Hotmart",
+        "Atualizar assinatura no Supabase",
+        "Retornar cancelamento efetivado",
+        "Retornar cancelado aguardando sync"
+      ],
+      "description": "Autentica via Custom Auth, efetiva cancelamento na Hotmart (send_mail: true), valida resposta e atualiza Supabase."
+    }
+  ]
+}
