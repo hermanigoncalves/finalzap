@@ -64,6 +64,8 @@ export default function Administrador() {
   const [wahaCarregando, setWahaCarregando] = useState(false);
   const wahaRef = useRef(waha);
   wahaRef.current = waha;
+  const wahaCarregandoRef = useRef(wahaCarregando);
+  wahaCarregandoRef.current = wahaCarregando;
   const [periodo, setPeriodo] = useState<Periodo>(() => periodoMesAtual(hojeISO()));
   const periodoRef = useRef(periodo);
   periodoRef.current = periodo;
@@ -162,7 +164,10 @@ export default function Administrador() {
   useEffect(() => {
     if (tab !== 'whatsapp') return;
     void consultarWaha();
-    const t = setInterval(() => { if (wahaRef.current?.status === 'SCAN_QR_CODE') void consultarWaha(); }, 5000);
+    const t = setInterval(() => {
+      const s = wahaRef.current?.status;
+      if (!wahaCarregandoRef.current && (s === 'SCAN_QR_CODE' || s === 'STARTING')) void consultarWaha();
+    }, 3000);
     return () => clearInterval(t);
   }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps -- recarregar só ao trocar de aba
 

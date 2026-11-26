@@ -26,7 +26,7 @@ export default async function handler(req: any, res: any) {
       fetch(`${base}${caminho}`, {
         ...init,
         headers: { 'X-Api-Key': chave, Accept: 'application/json', ...init.headers },
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(20_000),
       });
 
     if (req.method === 'POST' && req.body?.acao === 'webhook') {
@@ -48,15 +48,40 @@ export default async function handler(req: any, res: any) {
     } else if (req.method === 'POST') {
       const acao = ACOES[req.body?.acao];
       if (!acao) return res.status(400).json({ error: 'Ação inválida.' });
-      let r = await waha(`/api/sessions/${sessaoPath}/${acao}`, { method: 'POST' });
-      if (acao === 'start' && r.status === 404) {
-        r = await waha('/api/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: sessao, start: true }),
-        });
+
+      if (acao === 'start') {
+        const atual = await waha(`/api/sessions/${sessaoPath}`);
+        if (atual.status === 404) {
+          const rCriar = await waha('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: sessao, start: true }),
+          });
+          if (!rCriar.ok && rCriar.status !== 422) return res.status(502).json({ error: `WAHA respondeu ${rCriar.status}.` });
+        } else if (atual.ok) {
+          const estadoAtual = (await atual.json().catch(() => null))?.status;
+          if (estadoAtual === 'FAILED') {
+            let r = await waha(`/api/sessions/${sessaoPath}/restart`, { method: 'POST' });
+            if (!r.ok && r.status !== 422) {
+              await waha(`/api/sessions/${sessaoPath}/stop`, { method: 'POST' });
+              r = await waha(`/api/sessions/${sessaoPath}/start`, { method: 'POST' });
+            }
+            if (!r.ok && r.status !== 422) return res.status(502).json({ error: `WAHA respondeu ${r.status}.` });
+          } else if (estadoAtual !== 'WORKING' && estadoAtual !== 'SCAN_QR_CODE' && estadoAtual !== 'STARTING') {
+            let r = await waha(`/api/sessions/${sessaoPath}/start`, { method: 'POST' });
+            if (r.status === 422) r = await waha(`/api/sessions/${sessaoPath}/restart`, { method: 'POST' });
+            if (!r.ok && r.status !== 422) return res.status(502).json({ error: `WAHA respondeu ${r.status}.` });
+          }
+        } else if (atual.status === 401 || atual.status === 403) {
+          return res.status(502).json({ error: 'Chave do WAHA recusada.' });
+        } else {
+          return res.status(502).json({ error: `WAHA respondeu ${atual.status}.` });
+        }
+      } else {
+        const r = await waha(`/api/sessions/${sessaoPath}/${acao}`, { method: 'POST' });
+        if (!r.ok && r.status !== 422) return res.status(502).json({ error: `WAHA respondeu ${r.status}.` });
       }
-      if (!r.ok && r.status !== 422) return res.status(502).json({ error: `WAHA respondeu ${r.status}.` });
+
       const urlBanco = (await lerCredencial(supabase, 'WAHA_WEBHOOK_URL'))?.trim();
       if (acao === 'start' && urlBanco && /^https:\/\/[^\s]+$/.test(urlBanco)) {
         const segredoWebhook = (await lerCredencial(supabase, 'WAHA_WEBHOOK_SECRET')) || chave;

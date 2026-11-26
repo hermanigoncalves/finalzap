@@ -203,6 +203,9 @@ describe('🔒 Segurança WAHA, n8n e sanitização de payload Hotmart', () => {
       assert.ok(apiWaha.includes(`lerCredencial(supabase, '${chave}')`), `api/admin/waha.ts deve ler ${chave} do banco`);
     }
     assert.ok(apiWaha.includes("'FinalZap'"), 'api/admin/waha.ts deve usar FinalZap como instância padrão');
+    assert.match(apiWaha, /estadoAtual === 'FAILED'/);
+    assert.match(apiWaha, /\/restart/);
+    assert.match(adminFront, /=== 'STARTING'/);
 
     const wahaWf = lerTexto('n8n/finalzap-waha.json');
     assert.doesNotMatch(wahaWf, /session:\s*'default'/);
