@@ -29,6 +29,7 @@ const cadeia = [
   '20261125000001_credenciais_waha.sql',
   '20261125000002_hardening_producao.sql',
   '20261125000003_waha_webhook_url_banco.sql',
+  '20261128000001_realtime_usuario.sql',
 ];
 
 let PGlite;
@@ -521,5 +522,26 @@ describe('Banco limpo: schema mestre + RPCs + RLS', { skip: !PGlite && 'pglite n
     assert.equal(resAdm.success, false);
     await db.exec('reset role');
     assert.equal((await q(`select auth_id from public.perfis where telefone='${TEL_ADM}'`))[0].auth_id, U_ADM_LGPD);
+  });
+
+  it('realtime do usuário: publicação supabase_realtime e REPLICA IDENTITY FULL nas tabelas do cliente', async () => {
+    await db.exec('reset role');
+    const tabelas = ['movimentacoes', 'contas_a_pagar', 'orcamentos', 'compromissos', 'perfis', 'assinaturas'];
+    const pub = await q(`select tablename from pg_publication_tables where pubname='supabase_realtime' and schemaname='public'`);
+    const nomesPub = new Set(pub.map((r) => r.tablename));
+    for (const t of tabelas) {
+      assert.equal(nomesPub.has(t), true, `tabela ${t} ausente em supabase_realtime`);
+    }
+    const reps = await q(`
+      select c.relname, c.relreplident
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public'
+         and c.relname = any(array['movimentacoes','contas_a_pagar','orcamentos','compromissos','perfis','assinaturas'])
+    `);
+    assert.equal(reps.length, tabelas.length);
+    for (const r of reps) {
+      assert.equal(r.relreplident, 'f', `tabela ${r.relname} sem REPLICA IDENTITY FULL`);
+    }
   });
 });

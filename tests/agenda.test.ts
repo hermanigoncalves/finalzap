@@ -49,6 +49,7 @@ const cadeia = [
   '20261125000001_credenciais_waha.sql',
   '20261125000002_hardening_producao.sql',
   '20261125000003_waha_webhook_url_banco.sql',
+  '20261128000001_realtime_usuario.sql',
 ];
 
 function alcancaveis(connections: Record<string, { main?: Array<Array<{ node: string }>> }>, origem: string): Set<string> {

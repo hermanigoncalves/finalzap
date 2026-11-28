@@ -1,36 +1,25 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Target, Plus, Pencil, Check, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, Badge } from '../components/ui';
 import { nomeDaCategoria, idDaCategoria } from '../lib/categorias';
 import { useStore } from '../store/useStore';
 import { formatCurrency } from '../utils/formatters';
 import { useFinance } from '../hooks/useFinance';
-import type { Orcamento } from '../lib/financeService';
 import { mesAtual } from '../lib/datas';
 
 export default function Budget() {
-  const { categories, transactions } = useStore();
+  const { categories, transactions, orcamentos } = useStore();
   const {
     loading,
     error,
     definir_orcamento,
     remover_orcamento,
-    consultar_orcamentos,
-  } = useFinance();
+  } = useFinance(['movimentacoes', 'orcamentos']);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [limitInput, setLimitInput] = useState('');
-  const [orcamentos, setOrcamentos] = useState<Orcamento[]>([]);
 
   const expenseCategories = categories.filter((c) => c.type === 'expense');
-
-  // Carrega orçamentos do banco ao montar
-  const carregarOrcamentos = async () => {
-    const lista = await consultar_orcamentos();
-    setOrcamentos(lista);
-  };
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial ao montar
-  useEffect(() => { carregarOrcamentos(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- carregarOrcamentos é recriada a cada render; executar só ao montar
 
   // Calculate current month spending per category
   const mesCorrente = mesAtual();
@@ -55,7 +44,6 @@ export default function Budget() {
     if (!isNaN(val) && val > 0) {
       const resultado = await definir_orcamento(catId, val);
       if (!resultado.sucesso) alert(resultado.erro);
-      else await carregarOrcamentos();
     }
     setEditingId(null);
   };
@@ -63,7 +51,6 @@ export default function Budget() {
   const removerOrcamento = async (catId: string) => {
     const resultado = await remover_orcamento(catId);
     if (!resultado.sucesso) alert(resultado.erro);
-    else await carregarOrcamentos();
   };
 
   const getStatus = (spent: number, limit: number | undefined) => {

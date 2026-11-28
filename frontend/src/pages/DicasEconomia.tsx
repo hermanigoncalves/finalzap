@@ -3,10 +3,7 @@ import { nomeDaCategoria } from '../lib/categorias';
 import { Card, CardContent, CardTitle, Badge } from '../components/ui';
 import { useStore } from '../store/useStore';
 import { useFinance } from '../hooks/useFinance';
-import type { Orcamento, gerar_dicas_economia } from '../lib/financeService';
-import { useEffect, useState } from 'react';
-
-type Dica = ReturnType<typeof gerar_dicas_economia>[number];
+import { useMemo } from 'react';
 
 const ICONS_PRIORIDADE: Record<string, string> = {
   alta: '🔴',
@@ -15,40 +12,24 @@ const ICONS_PRIORIDADE: Record<string, string> = {
 };
 
 export default function DicasEconomia() {
-  const { transactions } = useStore();
+  const { transactions, orcamentos } = useStore();
   const {
     loading,
     error,
     obter_dicas_economia,
-    consultar_orcamentos,
-  } = useFinance();
+  } = useFinance(['movimentacoes', 'orcamentos']);
 
-  const [dicas, setDicas] = useState<Dica[]>([]);
-  const [, setOrcamentos] = useState<Orcamento[]>([]);
-
-  // Calcula gastos por categoria no mês atual
-  const mesCorrente = mesAtual();
-  const gastosPorCategoria: Record<string, number> = {};
-  transactions.forEach((tx) => {
-    if (tx.type !== 'expense') return;
-    if (tx.date.slice(0, 7) !== mesCorrente) return;
-    // chave pelo NOME: gerar_dicas_economia cruza com orcamentos.categoria (texto)
-    const nome = nomeDaCategoria(tx.categoryId);
-    gastosPorCategoria[nome] = (gastosPorCategoria[nome] ?? 0) + tx.amount;
-  });
-
-  const carregar = async () => {
-    const lista = await consultar_orcamentos();
-    setOrcamentos(lista);
-    const geradas = obter_dicas_economia(gastosPorCategoria, lista);
-    setDicas(geradas);
-  };
-
-  // Recalcula quando os lançamentos terminam de carregar (antes disso o store está vazio)
-  useEffect(() => {
-    if (!loading) void carregar();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- carregar é recriada a cada render
-  }, [loading]);
+  const dicas = useMemo(() => {
+    const mesCorrente = mesAtual();
+    const gastosPorCategoria: Record<string, number> = {};
+    transactions.forEach((tx) => {
+      if (tx.type !== 'expense') return;
+      if (tx.date.slice(0, 7) !== mesCorrente) return;
+      const nome = nomeDaCategoria(tx.categoryId);
+      gastosPorCategoria[nome] = (gastosPorCategoria[nome] ?? 0) + tx.amount;
+    });
+    return obter_dicas_economia(gastosPorCategoria, orcamentos);
+  }, [transactions, orcamentos, obter_dicas_economia]);
 
   if (loading) {
     return (

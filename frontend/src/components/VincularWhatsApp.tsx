@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 
-// Número do FinalZap no WhatsApp (só dígitos, com DDI). Opcional: sem ele mostramos só o código.
 const NUMERO_WHATSAPP = (import.meta.env.VITE_WHATSAPP_NUMERO as string | undefined)?.replace(/\D/g, '');
 
 type Estado =
@@ -10,9 +9,7 @@ type Estado =
   | { fase: 'codigo'; codigo: string }
   | { fase: 'erro'; mensagem: string };
 
-// Compra sem telefone: o cliente manda o código, do próprio WhatsApp, para o número do FinalZap.
-// O n8n confirma o número e cria o perfil; aqui só esperamos o vínculo aparecer.
-export default function VincularWhatsApp({ aoVincular }: { aoVincular: () => void }) {
+export default function VincularWhatsApp({ userId, aoVincular }: { userId: string; aoVincular: () => void }) {
   const { signOut } = useAuth();
   const [estado, setEstado] = useState<Estado>({ fase: 'carregando' });
   const [tentativa, setTentativa] = useState(0);
@@ -29,13 +26,37 @@ export default function VincularWhatsApp({ aoVincular }: { aoVincular: () => voi
     return () => { ativo = false; };
   }, [tentativa, aoVincular]);
 
-  // Enquanto o código está na tela, confere a cada 5 s se o WhatsApp já foi vinculado.
   const codigo = estado.fase === 'codigo' ? estado.codigo : null;
   useEffect(() => {
     if (!codigo) return;
-    const id = setInterval(aoVincular, 5000);
-    return () => clearInterval(id);
-  }, [codigo, aoVincular]);
+    let fallback: ReturnType<typeof setInterval> | undefined;
+    const iniciarFallback = () => {
+      if (!fallback) fallback = setInterval(aoVincular, 30_000);
+    };
+    const pararFallback = () => {
+      if (fallback) {
+        clearInterval(fallback);
+        fallback = undefined;
+      }
+    };
+
+    const canal = supabase
+      .channel(`vinculo-perfil:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'perfis', filter: `auth_id=eq.${userId}` },
+        () => aoVincular()
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') pararFallback();
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') iniciarFallback();
+      });
+
+    return () => {
+      pararFallback();
+      void supabase.removeChannel(canal);
+    };
+  }, [codigo, userId, aoVincular]);
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-slate-900 p-6">

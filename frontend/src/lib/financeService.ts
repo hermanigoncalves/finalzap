@@ -80,6 +80,14 @@ export function limparCachePerfil(): void {
   perfilEmCache = null;
 }
 
+export function atualizarCachePerfil(userId: string, perfil: PerfilUsuario | null): void {
+  if (!perfil || !userId) {
+    perfilEmCache = null;
+    return;
+  }
+  perfilEmCache = { userId, promessa: Promise.resolve(perfil) };
+}
+
 export interface PerfilUsuario {
   id: string;
   auth_id: string | null;
@@ -136,9 +144,16 @@ export async function atualizarPerfil(dados: { nome: string; email: string }): P
     confirmarEmail = true;
   }
 
-  const { error } = await supabase.from('perfis').update({ nome: dados.nome.trim(), email }).eq('id', perfil.id);
+  const { data: atualizado, error } = await supabase
+    .from('perfis')
+    .update({ nome: dados.nome.trim(), email })
+    .eq('id', perfil.id)
+    .select('*')
+    .single();
   if (error) throw error;
-  limparCachePerfil();
+  const uid = perfil.auth_id ?? user?.id ?? '';
+  if (atualizado && uid) atualizarCachePerfil(uid, atualizado as PerfilUsuario);
+  else limparCachePerfil();
   return confirmarEmail;
 }
 
@@ -406,13 +421,14 @@ export async function remover_orcamento(
   categoria: string,
   telefone?: string,
   mes?: string
-): Promise<void> {
+): Promise<string[]> {
   const t = telefone || (await resolverTelefoneUsuario());
-  if (!t) return;
+  if (!t) return [];
   let q = supabase.from('orcamentos').delete().eq('telefone', t).eq('categoria', categoria);
   q = mes ? q.eq('mes', mes) : q.is('mes', null);
-  const { error } = await q;
+  const { data, error } = await q.select('id');
   if (error) throw error;
+  return (data ?? []).map((r) => String((r as { id: string }).id));
 }
 
 export interface CadastrarContaAPagarInput {

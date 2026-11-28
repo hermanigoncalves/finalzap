@@ -15,7 +15,7 @@ export default function Transactions() {
     recarregar,
     registrar_movimentacao,
     remover_movimentacao,
-  } = useFinance();
+  } = useFinance(['movimentacoes']);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -103,7 +103,7 @@ export default function Transactions() {
           </p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={recarregar}>
+          <Button variant="outline" onClick={() => void recarregar()}>
             <RefreshCw size={18} className="mr-2" />
             Atualizar
           </Button>

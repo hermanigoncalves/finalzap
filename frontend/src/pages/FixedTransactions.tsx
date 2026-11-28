@@ -1,10 +1,10 @@
 import { ArrowDownRight, ArrowUpRight, Plus, Calendar, Check } from 'lucide-react';
-import type { ContaAPagar } from '../lib/financeService';
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, Modal } from '../components/ui';
 import { useStore } from '../store/useStore';
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useFinance } from '../hooks/useFinance';
 import { hojeISO } from '../lib/datas';
+import { filtrarContasVencendo } from '../lib/realtimeEstado';
 
 export default function FixedTransactions() {
   const { fixedTransactions, categories } = useStore();
@@ -13,15 +13,13 @@ export default function FixedTransactions() {
     error,
     cadastrar_conta_a_pagar,
     marcar_conta_paga,
-    lista_contas_vencendo,
     formatar_moeda_brl,
-  } = useFinance();
+  } = useFinance(['contas_a_pagar']);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [busca] = useState('');
   const [pagando, setPagando] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
-  const [contasVencendo, setContasVencendo] = useState<ContaAPagar[]>([]);
 
   // Form states
   const [desc, setDesc] = useState('');
@@ -29,12 +27,10 @@ export default function FixedTransactions() {
   const [catId, setCatId] = useState('');
   const [dateStr, setDateStr] = useState('');
 
-  const recarregarVencendo = () => lista_contas_vencendo(7).then(setContasVencendo);
-
-  // Carrega contas a pagar vencendo ao montar
-  useEffect(() => {
-    void lista_contas_vencendo(7).then(setContasVencendo);
-  }, [lista_contas_vencendo]);
+  const contasVencendo = useMemo(
+    () => filtrarContasVencendo(fixedTransactions, 7, hojeISO()),
+    [fixedTransactions]
+  );
 
   const handleAddFixedTx = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +53,6 @@ export default function FixedTransactions() {
     setDesc('');
     setAmount('');
     setDateStr('');
-    await recarregarVencendo();
   };
 
   const handlePagar = async (id: string) => {
@@ -68,7 +63,6 @@ export default function FixedTransactions() {
       setPagando(null);
       return;
     }
-    await recarregarVencendo();
     setTimeout(() => setPagando(null), 800);
   };
 
@@ -163,8 +157,9 @@ export default function FixedTransactions() {
           </CardHeader>
           <CardContent className="p-4 space-y-2">
             {contasVencendo.map((conta) => {
+              const venc = conta.vencimento || conta.date;
               const dias = Math.round(
-                (Date.parse(`${conta.vencimento.slice(0, 10)}T12:00:00Z`) - Date.parse(`${hojeISO()}T12:00:00Z`)) / 86400000
+                (Date.parse(`${venc.slice(0, 10)}T12:00:00Z`) - Date.parse(`${hojeISO()}T12:00:00Z`)) / 86400000
               );
               return (
                 <div
@@ -172,9 +167,9 @@ export default function FixedTransactions() {
                   className="flex items-center justify-between p-2 rounded-lg bg-orange-50 dark:bg-orange-900/10"
                 >
                   <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-white">{conta.descricao}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{conta.description}</p>
                     <p className="text-xs text-slate-500">
-                      Vence {dias === 0 ? 'HOJE' : `em ${dias} dia(s)`} — {formatar_moeda_brl(conta.valor)}
+                      Vence {dias === 0 ? 'HOJE' : `em ${dias} dia(s)`} — {formatar_moeda_brl(conta.amount)}
                     </p>
                   </div>
                   <Button

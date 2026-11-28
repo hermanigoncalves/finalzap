@@ -3,11 +3,13 @@ import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import DashboardLayout from './layouts/DashboardLayout';
 import { useAuth } from './hooks/useAuth';
 import AdminGuard from './components/AdminGuard';
-import { resolverPerfilUsuario, verificarMinhaAssinaturaAtiva, type PerfilUsuario } from './lib/financeService';
+import { resolverPerfilUsuario, limparCachePerfil, verificarMinhaAssinaturaAtiva, type PerfilUsuario } from './lib/financeService';
 import LoginPage from './pages/Login';
 import VincularWhatsApp from './components/VincularWhatsApp';
 import EscolherModo from './components/EscolherModo';
 import { lerModo, salvarModo } from './lib/modoAcesso';
+import { useStore } from './store/useStore';
+import { adquirirRealtimeUsuario } from './lib/sincronizacaoUsuario';
 
 const Dashboard         = lazy(() => import('./pages/Dashboard'));
 const Transactions      = lazy(() => import('./pages/Transactions'));
@@ -61,16 +63,36 @@ function AuthGate() {
   const [erroAssinatura, setErroAssinatura] = useState(false);
   const recarregarPerfil = useCallback(() => {
     resolverPerfilUsuario()
-      .then((p) => { setPerfil(p); setErroPerfil(false); })
+      .then((p) => {
+        setPerfil(p);
+        setErroPerfil(false);
+        useStore.setState({ perfil: p });
+      })
       .catch(() => setErroPerfil(true));
+  }, []);
+  const aoVincular = useCallback(() => {
+    limparCachePerfil();
+    recarregarPerfil();
+  }, [recarregarPerfil]);
+  const revalidarAssinatura = useCallback(async (telefone: string) => {
+    try {
+      const ok = await verificarMinhaAssinaturaAtiva(telefone);
+      setAssinaturaAtiva(ok);
+      setErroAssinatura(false);
+    } catch {
+      setErroAssinatura(true);
+    }
   }, []);
   useEffect(() => {
     if (userId) recarregarPerfil();
   }, [userId, recarregarPerfil]);
+  const perfilId = perfil?.id ?? null;
+  const perfilTelefone = perfil?.telefone ?? null;
+  const perfilRole = perfil?.role ?? null;
   useEffect(() => {
-    if (!perfil || perfil.role === 'admin') return;
+    if (!perfilTelefone || perfilRole === 'admin') return;
     let ativo = true;
-    verificarMinhaAssinaturaAtiva(perfil.telefone)
+    verificarMinhaAssinaturaAtiva(perfilTelefone)
       .then((ok) => {
         if (!ativo) return;
         setAssinaturaAtiva(ok);
@@ -81,10 +103,24 @@ function AuthGate() {
         setErroAssinatura(true);
       });
     return () => { ativo = false; };
-  }, [perfil]);
+  }, [perfilTelefone, perfilRole]);
   const isAdmin = perfil ? perfil.role === 'admin' : null;
 
   const [modo, setModo] = useState(lerModo);
+
+  useEffect(() => {
+    if (!perfilId || !perfilTelefone) return;
+    if (perfilRole === 'admin' && modo === 'admin') return;
+    return adquirirRealtimeUsuario(
+      { id: perfilId, telefone: perfilTelefone },
+      {
+        aoAtualizarPerfil: (p) => setPerfil(p),
+        aoMudarAssinatura: () => {
+          if (perfilRole !== 'admin') void revalidarAssinatura(perfilTelefone);
+        },
+      }
+    );
+  }, [perfilId, perfilTelefone, perfilRole, modo, revalidarAssinatura]);
 
   useEffect(() => {
     if (isAdmin && modo === 'admin' && pathname !== '/admin') navigate('/admin', { replace: true });
@@ -99,7 +135,7 @@ function AuthGate() {
   }
   if (perfil === undefined) return <Spinner />;
   if (perfil === null) {
-    return <VincularWhatsApp aoVincular={recarregarPerfil} />;
+    return <VincularWhatsApp userId={user.id} aoVincular={aoVincular} />;
   }
 
   if (perfil.role !== 'admin') {

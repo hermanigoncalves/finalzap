@@ -15,21 +15,28 @@ const tabs: { id: Tab; label: string; icon: typeof User }[] = [
 ];
 
 export default function Settings() {
-  const { userSettings, updateSettings } = useStore();
+  const { userSettings, updateSettings, perfil: perfilStore } = useStore();
   const { signOut } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [saved, setSaved] = useState(false);
-  const [perfil, setPerfil] = useState<PerfilUsuario | null>(null);
-  const [perfilCarregado, setPerfilCarregado] = useState(false);
+  const [perfilLocal, setPerfilLocal] = useState<PerfilUsuario | null>(null);
+  const [perfilCarregado, setPerfilCarregado] = useState(() => useStore.getState().perfil !== null);
   const [perfilErro, setPerfilErro] = useState('');
-  const [nome, setNome] = useState('');
-  const [email, setEmail] = useState('');
+  const [rascunho, setRascunho] = useState<{ nome: string; email: string } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [erroExclusao, setErroExclusao] = useState('');
+  const perfil = perfilStore ?? perfilLocal;
+  const nome = rascunho ? rascunho.nome : (perfil?.nome ?? '');
+  const email = rascunho ? rascunho.email : (perfil?.email ?? '');
+
   useEffect(() => {
+    if (useStore.getState().perfil) return;
     resolverPerfilUsuario()
-      .then((p) => { setPerfil(p); setNome(p?.nome ?? ''); setEmail(p?.email ?? ''); })
+      .then((p) => {
+        setPerfilLocal(p);
+        if (p) useStore.setState({ perfil: p });
+      })
       .catch(() => setPerfilErro('Não foi possível carregar o perfil.'))
       .finally(() => setPerfilCarregado(true));
   }, []);
@@ -44,6 +51,12 @@ export default function Settings() {
     setPerfilErro('');
     try {
       const confirmar = await atualizarPerfil({ nome, email });
+      const atualizado = await resolverPerfilUsuario();
+      if (atualizado) {
+        setPerfilLocal(atualizado);
+        useStore.setState({ perfil: atualizado });
+      }
+      setRascunho(null);
       mostrarSalvo();
       if (confirmar) alert('Enviamos um link de confirmação para o novo e-mail. O login só muda depois de confirmar.');
     } catch (e) {
@@ -123,12 +136,12 @@ export default function Settings() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2 space-y-1.5">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Nome</label>
-                  <input type="text" value={nome} onChange={e => setNome(e.target.value)} disabled={!perfil}
+                  <input type="text" value={nome} onChange={e => setRascunho({ nome: e.target.value, email })} disabled={!perfil}
                     className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none disabled:opacity-60" />
                 </div>
                 <div className="sm:col-span-2 space-y-1.5">
                   <label className="text-sm font-medium text-slate-700 dark:text-slate-300">E-mail</label>
-                  <input type="email" value={email} onChange={e => setEmail(e.target.value)} disabled={!perfil}
+                  <input type="email" value={email} onChange={e => setRascunho({ nome, email: e.target.value })} disabled={!perfil}
                     className="w-full p-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:ring-2 focus:ring-green-500 outline-none disabled:opacity-60" />
                 </div>
                 <div className="sm:col-span-2 space-y-1.5">

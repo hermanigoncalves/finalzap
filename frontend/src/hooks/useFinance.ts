@@ -1,10 +1,18 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useStore } from '../store/useStore';
-import { nomeDaCategoria, idDaCategoria } from '../lib/categorias';
+import { nomeDaCategoria } from '../lib/categorias';
+import type { DominioUsuario } from '../lib/realtimeEstado';
+import {
+  aplicarContaLocal,
+  aplicarMovimentacaoLocal,
+  aplicarOrcamentoLocal,
+  garantirDominios,
+  useEstadoSyncUsuario,
+  useSincronizacaoDominios,
+} from '../lib/sincronizacaoUsuario';
 import {
   registrar_movimentacao,
   remover_movimentacao,
-  consultar_movimentacoes,
   consultar_saldo,
   consultar_resumo_mensal,
   consultar_resumo_varios_meses,
@@ -38,82 +46,9 @@ import {
 export type { Orcamento, TipoAssinatura, TipoMovimentacao };
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : '');
 
-/**
- * Hook que sincroniza o Zustand (estado local da UI) com o Supabase
- * seguindo as regras do prompt do agente financeiro (FINALZAP).
- */
-export function useFinance() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export function useFinance(dominios: readonly DominioUsuario[] = []) {
+  const { loading, error, recarregar } = useSincronizacaoDominios(dominios);
 
-  // O banco é a única fonte de transações e contas: nada é mantido só no navegador.
-  const carregarDados = useCallback(async (silencioso: boolean | unknown = false) => {
-    if (silencioso !== true) setLoading(true);
-    setError(null);
-    try {
-      // 1. Movimentações do banco (fonte da verdade para saldo/extrato)
-      // Sem limite: gráficos e totais do painel precisam de todo o histórico (a função pagina de 1000 em 1000).
-      const movs = await consultar_movimentacoes();
-      const txsDoBanco: Array<{
-        id: string;
-        description: string;
-        amount: number;
-        type: 'income' | 'expense';
-        categoryId: string;
-        accountId: string;
-        date: string;
-        mes?: string;
-        fonte: 'whatsapp' | 'painel' | 'conta_paga' | 'recorrente';
-        telefone?: string;
-      }> = movs.map((m) => ({
-        id: m.id,
-        description: m.descricao ?? '',
-        amount: Number(m.valor),
-        type: m.tipo === 'receita' ? 'income' : 'expense',
-        categoryId: idDaCategoria(m.categoria, m.tipo === 'receita' ? 'income' : 'expense'),
-        accountId: 'acc_whatsapp',
-        date: m.data,
-        mes: m.mes,
-        fonte: (m.fonte || 'whatsapp') as 'whatsapp' | 'painel' | 'conta_paga' | 'recorrente',
-        telefone: m.telefone,
-      }));
-
-      useStore.setState({ transactions: txsDoBanco });
-
-      // 2. Contas a pagar (saldos e orçamentos são lidos pelas próprias telas)
-      const contas = await listar_contas_a_pagar();
-      const fixasDoBanco = contas.map((c) => ({
-        id: c.id,
-        description: c.descricao,
-        amount: Number(c.valor),
-        type: 'expense' as const,
-        categoryId: idDaCategoria(c.categoria || 'Contas'),
-        accountId: 'acc_whatsapp',
-        date: c.vencimento,
-        vencimento: c.vencimento,
-        frequency: 'Mensal' as const,
-        status: (c.status === 'paga' || c.status === 'cancelada' ? c.status : 'pendente') as 'paga' | 'cancelada' | 'pendente',
-        lembreteEnviado: false,
-        telefone: c.telefone,
-        movimentacaoId: c.movimentacao_id,
-        fonte: 'conta_paga' as const,
-      }));
-
-      useStore.setState({ fixedTransactions: fixasDoBanco });
-
-      setError(null);
-    } catch (e) {
-      setError(errMsg(e) || 'Erro ao carregar dados financeiros');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    carregarDados();
-  }, [carregarDados]);
-
-  /* -------------------- Função 1: Registrar movimentação -------------------- */
   const registrar_movimentacao_ui = useCallback(
     async (input: {
       tipo: TipoMovimentacao;
@@ -132,7 +67,7 @@ export function useFinance() {
           fonte: 'painel',
         });
 
-        await carregarDados(true);
+        aplicarMovimentacaoLocal('INSERT', salvo);
 
         return {
           sucesso: true,
@@ -143,23 +78,26 @@ export function useFinance() {
         return { sucesso: false, mensagem: errMsg(e) || 'Não foi possível salvar a movimentação.' };
       }
     },
-    [carregarDados]
+    []
   );
 
   const remover_movimentacao_ui = useCallback(
     async (id: string) => {
       try {
         await remover_movimentacao(id);
-        await carregarDados(true);
+        aplicarMovimentacaoLocal('DELETE', null, id);
+        const estado = useEstadoSyncUsuario.getState();
+        if (!estado.realtimeConectado && estado.dominios.contas_a_pagar.status === 'ready') {
+          void garantirDominios(['contas_a_pagar'], { forcar: true });
+        }
         return { sucesso: true as const };
       } catch (e) {
         return { sucesso: false as const, mensagem: errMsg(e) || 'Não foi possível excluir.' };
       }
     },
-    [carregarDados]
+    []
   );
 
-  /* -------------------- Função 3: Resumo mensal -------------------- */
   const resumo_mensal = useCallback(
     async (mes?: string) => {
       return consultar_resumo_mensal(undefined, mes);
@@ -167,7 +105,6 @@ export function useFinance() {
     []
   );
 
-  /* -------------------- Função 4: Orçamento -------------------- */
   const definir_orcamento_ui = useCallback(
     async (categoria: string, limite: number, mes?: string) => {
       try {
@@ -176,6 +113,7 @@ export function useFinance() {
           limite_mensal: limite,
           mes,
         });
+        aplicarOrcamentoLocal('INSERT', salvo);
         return { sucesso: true, orcamento: salvo };
       } catch (e) {
         return { sucesso: false, erro: errMsg(e) || 'Erro ao definir orçamento.' };
@@ -187,7 +125,10 @@ export function useFinance() {
   const remover_orcamento_ui = useCallback(
     async (categoria: string, mes?: string) => {
       try {
-        await remover_orcamento(nomeDaCategoria(categoria), undefined, mes);
+        const ids = await remover_orcamento(nomeDaCategoria(categoria), undefined, mes);
+        for (const id of ids) {
+          aplicarOrcamentoLocal('DELETE', null, id);
+        }
         return { sucesso: true };
       } catch (e) {
         return { sucesso: false, erro: errMsg(e) || 'Erro ao remover orçamento.' };
@@ -196,7 +137,6 @@ export function useFinance() {
     []
   );
 
-  /* -------------------- Função 5: Contas a pagar -------------------- */
   const cadastrar_conta_a_pagar_ui = useCallback(
     async (input: {
       descricao: string;
@@ -212,22 +152,32 @@ export function useFinance() {
           vencimento: input.vencimento,
         });
 
-        await carregarDados(true);
+        aplicarContaLocal('INSERT', salva);
 
         return { sucesso: true, conta: salva };
       } catch (e) {
         return { sucesso: false, erro: errMsg(e) || 'Erro ao cadastrar conta a pagar.' };
       }
     },
-    [carregarDados]
+    []
   );
 
   const marcar_conta_paga_ui = useCallback(
     async (contaId: string) => {
       try {
         const resultado = await marcar_conta_paga(contaId);
-        // A RPC já cria a despesa; recarrega do banco em vez de duplicar localmente.
-        if (resultado.sucesso) await carregarDados(true);
+        if (resultado.sucesso) {
+          useStore.setState((s) => ({
+            fixedTransactions: s.fixedTransactions.map((ft) =>
+              ft.id === contaId
+                ? { ...ft, status: 'paga' as const, movimentacaoId: resultado.movimentacao_id }
+                : ft
+            ),
+          }));
+          if (!useEstadoSyncUsuario.getState().realtimeConectado) {
+            await garantirDominios(['movimentacoes', 'contas_a_pagar'], { forcar: true });
+          }
+        }
         return {
           sucesso: resultado.sucesso,
           mensagem: resultado.mensagem,
@@ -240,7 +190,7 @@ export function useFinance() {
         };
       }
     },
-    [carregarDados]
+    []
   );
 
   const lista_contas_vencendo = useCallback(
@@ -250,7 +200,6 @@ export function useFinance() {
     []
   );
 
-  /* -------------------- Função 7: Dicas de economia -------------------- */
   const obter_dicas_economia = useCallback(
     (gastosPorCategoria: Record<string, number>, orcamentosList: Orcamento[] = []) => {
       return gerar_dicas_economia(gastosPorCategoria, orcamentosList);
@@ -258,7 +207,6 @@ export function useFinance() {
     []
   );
 
-  /* -------------------- Função 8: Assinaturas (Hotmart) -------------------- */
   const listar_assinaturas_ui = useCallback(
     async (telefone?: string) => {
       return listar_assinaturas(telefone);
@@ -327,37 +275,28 @@ export function useFinance() {
   return {
     loading,
     error,
-    recarregar: carregarDados,
-    // Função 1
+    recarregar,
     registrar_movimentacao: registrar_movimentacao_ui,
     remover_movimentacao: remover_movimentacao_ui,
-    // Função 2
     consultar_saldo,
-    // Função 3
     resumo_mensal,
     consultar_resumo_varios_meses,
-    // Função 4
     definir_orcamento: definir_orcamento_ui,
     remover_orcamento: remover_orcamento_ui,
     consultar_orcamentos,
-    // Função 5
     cadastrar_conta_a_pagar: cadastrar_conta_a_pagar_ui,
     marcar_conta_paga: marcar_conta_paga_ui,
     lista_contas_vencendo,
     listar_contas_a_pagar,
-    // Função 7
     obter_dicas_economia,
     formatar_moeda_brl,
-    // Função 8: Assinaturas (Hotmart)
     listar_assinaturas: listar_assinaturas_ui,
     cadastrar_assinatura: cadastrar_assinatura_ui,
     atualizar_assinatura: atualizar_assinatura_ui,
     remover_assinatura: remover_assinatura_ui,
-    // Função 9: Tokens / Uso de serviços
     listar_uso_servico,
     registrar_uso_servico,
     resumo_uso_servico,
-    // Função 10: Custos fixos
     listar_custos_fixos,
     cadastrar_custo_fixo,
     atualizar_custo_fixo,

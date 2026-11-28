@@ -1,36 +1,27 @@
 import { Card, CardContent, CardHeader, CardTitle, Button, Modal } from '../components/ui';
-import type { ContaAPagar } from '../lib/financeService';
 import { Link } from 'react-router-dom';
 import { useStore, type TransactionType } from '../store/useStore';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { ArrowDownRight, ArrowUpRight, Wallet, ArrowRight, Plus, MessageCircle } from 'lucide-react';
 import { useFinance } from '../hooks/useFinance';
 import { paraTipoMovimentacao } from '../lib/tipos';
 import { hojeISO, mesAtual as mesAtualSP, somarMeses } from '../lib/datas';
 import { nomeDaCategoria } from '../lib/categorias';
+import { filtrarContasVencendo } from '../lib/realtimeEstado';
 
 const GraficoFluxoCaixa = lazy(() => import('../components/GraficoFluxoCaixa'));
 
 export default function Dashboard() {
-  const { transactions, categories } = useStore();
+  const { transactions, fixedTransactions, categories } = useStore();
   const {
     loading,
     error,
-    lista_contas_vencendo,
     registrar_movimentacao,
-  } = useFinance();
+  } = useFinance(['movimentacoes', 'contas_a_pagar']);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [enviando, setEnviando] = useState(false);
-  const [contasVencendo, setContasVencendo] = useState<ContaAPagar[]>([]);
-
-  // Saldo e resumo do mês saem do histórico que o useFinance já carregou; só as contas do dia vêm do banco aqui.
-  const carregarResumo = async () => {
-    setContasVencendo(await lista_contas_vencendo(0));
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- carga inicial; carregarResumo é recriada a cada render
-  useEffect(() => { void carregarResumo(); }, []);
 
   const mesAtual = mesAtualSP();
 
@@ -56,7 +47,6 @@ export default function Dashboard() {
     setDesc('');
     setAmount('');
     setDate(hojeISO());
-    await carregarResumo();
   };
 
   // Form states
@@ -76,7 +66,10 @@ export default function Dashboard() {
     .filter((t) => t.type === 'expense')
     .reduce((acc, t) => acc + t.amount, 0);
 
-  const contasVencendoHoje = contasVencendo.reduce((acc, c) => acc + c.valor, 0);
+  const contasVencendoHoje = useMemo(
+    () => filtrarContasVencendo(fixedTransactions, 0, hojeISO()).reduce((acc, c) => acc + c.amount, 0),
+    [fixedTransactions]
+  );
 
   const recentTransactions = transactions.slice(0, 5);
 

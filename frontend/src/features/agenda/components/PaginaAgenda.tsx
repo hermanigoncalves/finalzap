@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { CalendarClock, Check, MapPin, Pencil, Plus, XCircle } from 'lucide-react';
 import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '../../../components/ui';
 import { hojeISO, somarDias } from '../../../lib/datas';
+import { useStore } from '../../../store/useStore';
+import { aplicarCompromissoLocal, useSincronizacaoDominios } from '../../../lib/sincronizacaoUsuario';
 import { formatarDataHoraSP } from '../regras.ts';
 import {
   atualizarStatusCompromisso,
   criarCompromisso,
-  listarCompromissos,
   remarcarCompromisso,
 } from '../servico.ts';
 import type { Compromisso, FiltroAgenda, NovoCompromissoInput } from '../tipos.ts';
@@ -32,46 +33,28 @@ function rotuloStatus(status: Compromisso['status']): string {
 }
 
 export function PaginaAgenda() {
-  const [itens, setItens] = useState<Compromisso[]>([]);
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState<string | null>(null);
+  const itens = useStore((s) => s.compromissos);
+  const { loading: carregando, error: erroCarga } = useSincronizacaoDominios(['compromissos']);
+  const [erroAcao, setErroAcao] = useState<string | null>(null);
   const [filtro, setFiltro] = useState<FiltroAgenda>('proximos');
   const [modalAberto, setModalAberto] = useState(false);
   const [emEdicao, setEmEdicao] = useState<Compromisso | null>(null);
   const [ocupadoId, setOcupadoId] = useState<string | null>(null);
-
-  const recarregar = useCallback(async () => {
-    try {
-      setErro(null);
-      setItens(await listarCompromissos());
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao carregar compromissos.');
-    } finally {
-      setCarregando(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void recarregar();
-  }, [recarregar]);
+  const erro = erroAcao ?? erroCarga;
 
   async function aoSalvar(dados: NovoCompromissoInput, id?: string) {
-    if (id) {
-      await remarcarCompromisso(id, dados);
-    } else {
-      await criarCompromisso(dados);
-    }
-    await recarregar();
+    const salvo = id ? await remarcarCompromisso(id, dados) : await criarCompromisso(dados);
+    aplicarCompromissoLocal(id ? 'UPDATE' : 'INSERT', salvo);
   }
 
   async function mudarStatus(id: string, status: 'concluido' | 'cancelado') {
     setOcupadoId(id);
-    setErro(null);
+    setErroAcao(null);
     try {
-      await atualizarStatusCompromisso(id, status);
-      await recarregar();
+      const atualizado = await atualizarStatusCompromisso(id, status);
+      aplicarCompromissoLocal('UPDATE', atualizado);
     } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Não foi possível atualizar o compromisso.');
+      setErroAcao(err instanceof Error ? err.message : 'Não foi possível atualizar o compromisso.');
     } finally {
       setOcupadoId(null);
     }

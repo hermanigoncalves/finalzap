@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
+import type { Orcamento, PerfilUsuario } from '../lib/financeService';
+import type { Compromisso } from '../features/agenda';
 
 export type AccountType = 'Conta Corrente' | 'Conta Poupança' | 'Cartão de Crédito' | 'Dinheiro' | 'Conta PJ';
 export type TransactionType = 'income' | 'expense';
@@ -54,6 +56,7 @@ export interface Transaction {
   mes?: string;
   fonte: 'whatsapp' | 'painel' | 'conta_paga' | 'recorrente';
   telefone?: string;
+  createdAt?: string;
 }
 
 export interface FixedTransaction {
@@ -124,6 +127,9 @@ interface AppState {
   accounts: Account[];
   transactions: Transaction[];
   fixedTransactions: FixedTransaction[];
+  orcamentos: Orcamento[];
+  compromissos: Compromisso[];
+  perfil: PerfilUsuario | null;
   categories: Category[];
   investments: Investment[];
   savingsGoals: SavingsGoal[];
@@ -223,6 +229,9 @@ export const useStore = create<AppState>()(
         fixedDueDays: 5,
       },
       fixedTransactions: [],
+      orcamentos: [],
+      compromissos: [],
+      perfil: null,
       creditCards: [],
 
       addCreditCard: (card) => set((s) => ({ creditCards: [...s.creditCards, card] })),
